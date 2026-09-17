@@ -15,4 +15,18 @@ describe('ingredientOrdering', () => {
     expect(reorderIngredientWithinDish(source, 1, 0).map((i) => i.descripcion)).toEqual(['Pollo', 'Pan', 'Leche']);
     expect(reorderIngredientWithinDish(source, 0, 2)).toBe(source);
   });
+
+  it('conserva el bloque del platillo importado al mover uno de sus ingredientes', () => {
+    const source = [
+      { ...item('Tortilla', 'Tacos importados'), id: 'library-1' },
+      { ...item('Pollo', 'Tacos importados'), id: 'library-2' },
+      { ...item('Aguacate', 'Tacos importados'), id: 'library-3' },
+      item('Yogur', 'Colación'),
+    ];
+
+    const reordered = reorderIngredientWithinDish(source, 2, 0);
+
+    expect(reordered.map((i) => i.descripcion)).toEqual(['Aguacate', 'Tortilla', 'Pollo', 'Yogur']);
+    expect(reordered.slice(0, 3).every((i) => i.platillo === 'Tacos importados')).toBe(true);
+  });
 });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Save, Plus, PlusCircle, Search, ChevronDown, ChevronUp, Copy, BookOpen, Clock, Activity, AlertCircle, Edit3, Trash2, CheckCircle2, MoreHorizontal, ClipboardList, Settings, Bookmark, Droplets, Pill, FileText, X, GripVertical, RotateCcw } from 'lucide-react';
 import { SmaeIngredientePicker } from '@/components/SmaeIngredientePicker';
@@ -31,6 +31,7 @@ import {
 import { reorderDishGroups, reorderIngredientWithinDish } from '@/lib/ingredientOrdering';
 import { PacienteResumenSidebar } from '@/components/PacienteResumenSidebar';
 import { Phase4Delivery } from './Phase4Delivery';
+import { beginNativeDrag } from '@/lib/nativeDrag';
 
 const defaultTiempos = ['Pre-entreno', 'Desayuno', 'Colación', 'Almuerzo', 'Colación', 'Cena'];
 
@@ -117,6 +118,8 @@ export const CreateEditPlanForm = ({
   const [dragOverDishIdx, setDragOverDishIdx] = useState<number | null>(null);
   const [draggedIngredient, setDraggedIngredient] = useState<{ menuIdx: number; tiempoIdx: number; ingredientIdx: number } | null>(null);
   const [dragOverIngredientIdx, setDragOverIngredientIdx] = useState<number | null>(null);
+  const draggedDishRef = useRef<typeof draggedDish>(null);
+  const draggedIngredientRef = useRef<typeof draggedIngredient>(null);
   const [removedDishes, setRemovedDishes] = useState<Array<{ menuIdx: number; tiempoIdx: number; nombre: string; ingredientes: Ingrediente[] }>>([]);
   const [removedIngredients, setRemovedIngredients] = useState<Array<{ menuIdx: number; tiempoIdx: number; ingrediente: Ingrediente }>>([]);
 
@@ -139,6 +142,29 @@ export const CreateEditPlanForm = ({
 
   // ─── Toggle agua natural en comidas principales ──────────────────────────────
   const [aguaNaturalDefault, setAguaNaturalDefault] = useState(true);
+
+  const clearNativeDragState = useCallback(() => {
+    draggedDishRef.current = null;
+    draggedIngredientRef.current = null;
+    setDraggedTiempoIdx(null);
+    setDragOverTiempoIdx(null);
+    setDraggedDish(null);
+    setDragOverDishIdx(null);
+    setDraggedIngredient(null);
+    setDragOverIngredientIdx(null);
+  }, []);
+
+  useEffect(() => {
+    const clearDrag = () => clearNativeDragState();
+    document.addEventListener('dragend', clearDrag);
+    document.addEventListener('drop', clearDrag);
+    window.addEventListener('blur', clearDrag);
+    return () => {
+      document.removeEventListener('dragend', clearDrag);
+      document.removeEventListener('drop', clearDrag);
+      window.removeEventListener('blur', clearDrag);
+    };
+  }, [clearNativeDragState]);
 
 
   // Defensive sort: backend ya guarda `orden`, pero por si algún endpoint regresa sin ordenar
@@ -1688,19 +1714,20 @@ export const CreateEditPlanForm = ({
                             <div
                               key={`${mi}-${ti}-${pIndex}`}
                               onDragOver={(event) => {
-                                if (!draggedDish || draggedDish.menuIdx !== mi || draggedDish.tiempoIdx !== ti) return;
+                                const activeDish = draggedDishRef.current || draggedDish;
+                                if (!activeDish || activeDish.menuIdx !== mi || activeDish.tiempoIdx !== ti) return;
                                 event.preventDefault();
                                 setDragOverDishIdx(pIndex);
                               }}
                               onDrop={(event) => {
-                                if (!draggedDish || draggedDish.menuIdx !== mi || draggedDish.tiempoIdx !== ti) return;
+                                const activeDish = draggedDishRef.current || draggedDish;
+                                if (!activeDish || activeDish.menuIdx !== mi || activeDish.tiempoIdx !== ti) return;
                                 event.preventDefault();
                                 updateTiempo(mi, ti, current => ({
                                   ...current,
-                                  ingredientes: reorderDishGroups(current.ingredientes, draggedDish.groupIdx, pIndex),
+                                  ingredientes: reorderDishGroups(current.ingredientes, activeDish.groupIdx, pIndex),
                                 }));
-                                setDraggedDish(null);
-                                setDragOverDishIdx(null);
+                                clearNativeDragState();
                               }}
                               className={pName ? `p-3 bg-[#111111] border rounded-[8px] transition-all ${draggedDish?.menuIdx === mi && draggedDish?.tiempoIdx === ti && dragOverDishIdx === pIndex && draggedDish.groupIdx !== pIndex ? 'border-brand-primary ring-1 ring-brand-primary/40' : 'border-[#333]'}` : ''}
                             >
@@ -1710,13 +1737,12 @@ export const CreateEditPlanForm = ({
                                     type="button"
                                     draggable
                                     onDragStart={(event) => {
-                                      setDraggedDish({ menuIdx: mi, tiempoIdx: ti, groupIdx: pIndex });
-                                      event.dataTransfer.effectAllowed = 'move';
+                                      const activeDish = { menuIdx: mi, tiempoIdx: ti, groupIdx: pIndex };
+                                      draggedDishRef.current = activeDish;
+                                      setDraggedDish(activeDish);
+                                      beginNativeDrag(event.dataTransfer, 'dish', activeDish);
                                     }}
-                                    onDragEnd={() => {
-                                      setDraggedDish(null);
-                                      setDragOverDishIdx(null);
-                                    }}
+                                    onDragEnd={clearNativeDragState}
                                     className="p-1.5 text-[#b0b0b0] bg-[#222] border border-[#3a3a3a] hover:text-white rounded-[5px] cursor-grab active:cursor-grabbing"
                                     title="Arrastrar platillo"
                                   >
@@ -1794,20 +1820,21 @@ export const CreateEditPlanForm = ({
                                     <div
                                       key={ing.id || `ing-${mi}-${ti}-${ii}`}
                                       onDragOver={(event) => {
-                                        if (!draggedIngredient || draggedIngredient.menuIdx !== mi || draggedIngredient.tiempoIdx !== ti) return;
-                                        if ((tiempo.ingredientes[draggedIngredient.ingredientIdx]?.platillo || '') !== pName) return;
+                                        const activeIngredient = draggedIngredientRef.current || draggedIngredient;
+                                        if (!activeIngredient || activeIngredient.menuIdx !== mi || activeIngredient.tiempoIdx !== ti) return;
+                                        if ((tiempo.ingredientes[activeIngredient.ingredientIdx]?.platillo || '') !== pName) return;
                                         event.preventDefault();
                                         setDragOverIngredientIdx(ii);
                                       }}
                                       onDrop={(event) => {
-                                        if (!draggedIngredient || draggedIngredient.menuIdx !== mi || draggedIngredient.tiempoIdx !== ti) return;
+                                        const activeIngredient = draggedIngredientRef.current || draggedIngredient;
+                                        if (!activeIngredient || activeIngredient.menuIdx !== mi || activeIngredient.tiempoIdx !== ti) return;
                                         event.preventDefault();
                                         updateTiempo(mi, ti, current => ({
                                           ...current,
-                                          ingredientes: reorderIngredientWithinDish(current.ingredientes, draggedIngredient.ingredientIdx, ii),
+                                          ingredientes: reorderIngredientWithinDish(current.ingredientes, activeIngredient.ingredientIdx, ii),
                                         }));
-                                        setDraggedIngredient(null);
-                                        setDragOverIngredientIdx(null);
+                                        clearNativeDragState();
                                       }}
                                       className={`flex items-start gap-2 rounded-[6px] transition-all ${isIngredientDragTarget ? 'ring-1 ring-brand-primary/50 bg-brand-primary/5' : ''} ${isDraggingThis ? 'opacity-45' : ''}`}
                                     >
@@ -1816,13 +1843,12 @@ export const CreateEditPlanForm = ({
                                           type="button"
                                           draggable
                                           onDragStart={(event) => {
-                                            setDraggedIngredient({ menuIdx: mi, tiempoIdx: ti, ingredientIdx: ii });
-                                            event.dataTransfer.effectAllowed = 'move';
+                                            const activeIngredient = { menuIdx: mi, tiempoIdx: ti, ingredientIdx: ii };
+                                            draggedIngredientRef.current = activeIngredient;
+                                            setDraggedIngredient(activeIngredient);
+                                            beginNativeDrag(event.dataTransfer, 'ingredient', activeIngredient);
                                           }}
-                                          onDragEnd={() => {
-                                            setDraggedIngredient(null);
-                                            setDragOverIngredientIdx(null);
-                                          }}
+                                          onDragEnd={clearNativeDragState}
                                           className="p-1.5 text-[#aaa] bg-[#222] border border-[#3a3a3a] hover:text-white rounded-[5px] cursor-grab active:cursor-grabbing"
                                           title="Arrastrar ingrediente"
                                         >

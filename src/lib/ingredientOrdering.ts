@@ -26,3 +26,20 @@ export const reorderIngredientWithinDish = (
   result.splice(toIndex, 0, moved);
   return result;
 };
+
+export const ingredientDragId = (ingredientIndex: number) => `ingredient-${ingredientIndex}`;
+
+export const reorderIngredientFromDrag = (
+  ingredientes: Ingrediente[],
+  activeId: string | number,
+  overId: string | number,
+): Ingrediente[] => {
+  const parseIndex = (id: string | number) => {
+    const match = /^ingredient-(\d+)$/.exec(String(id));
+    return match ? Number(match[1]) : null;
+  };
+  const fromIndex = parseIndex(activeId);
+  const toIndex = parseIndex(overId);
+  if (fromIndex === null || toIndex === null) return ingredientes;
+  return reorderIngredientWithinDish(ingredientes, fromIndex, toIndex);
+};

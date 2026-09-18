@@ -1,4 +1,20 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useParams, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Save, Plus, PlusCircle, Search, ChevronDown, ChevronUp, Copy, BookOpen, Clock, Activity, AlertCircle, Edit3, Trash2, CheckCircle2, MoreHorizontal, ClipboardList, Settings, Bookmark, Droplets, Pill, FileText, X, GripVertical, RotateCcw } from 'lucide-react';
 import { SmaeIngredientePicker } from '@/components/SmaeIngredientePicker';
@@ -28,7 +44,12 @@ import {
   restoreMealTimeToMenus,
   type RemovedMealTime,
 } from '@/lib/mealTimeOrdering';
-import { reorderDishGroups, reorderIngredientWithinDish } from '@/lib/ingredientOrdering';
+import {
+  ingredientDragId,
+  reorderDishGroups,
+  reorderIngredientFromDrag,
+  reorderIngredientWithinDish,
+} from '@/lib/ingredientOrdering';
 import { PacienteResumenSidebar } from '@/components/PacienteResumenSidebar';
 import { Phase4Delivery } from './Phase4Delivery';
 import { beginNativeDrag } from '@/lib/nativeDrag';
@@ -53,6 +74,11 @@ const emptyIngrediente = (): Ingrediente => ({
   nota: ''
 });
 
+const newClientIngredientId = () =>
+  typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `ingredient-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
 /** Redondeo inteligente para porciones prácticas:
  *  - Parte decimal >= 0.5 → redondea arriba
  *  - Parte decimal < 0.5  → redondea abajo
@@ -61,6 +87,38 @@ const emptyIngrediente = (): Ingrediente => ({
 const smartRound = (val: number): number => {
   if (val <= 0) return 0;
   return Math.round(val); // Math.round ya hace >=0.5 up, <0.5 down
+};
+
+const SortableIngredientRow = ({
+  id,
+  children,
+}: {
+  id: string;
+  children: (dragHandleProps: React.HTMLAttributes<HTMLButtonElement>, isDragging: boolean) => React.ReactNode;
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id });
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={{
+        transform: CSS.Transform.toString(transform),
+        transition,
+        position: 'relative',
+        zIndex: isDragging ? 30 : undefined,
+      }}
+      className={`flex items-start gap-2 rounded-[6px] transition-opacity ${isDragging ? 'opacity-45 shadow-lg' : ''}`}
+    >
+      {children({ ...attributes, ...listeners } as React.HTMLAttributes<HTMLButtonElement>, isDragging)}
+    </div>
+  );
 };
 
 export const CreateEditPlanForm = ({
@@ -116,10 +174,7 @@ export const CreateEditPlanForm = ({
   const [dragOverTiempoIdx, setDragOverTiempoIdx] = useState<number | null>(null);
   const [draggedDish, setDraggedDish] = useState<{ menuIdx: number; tiempoIdx: number; groupIdx: number } | null>(null);
   const [dragOverDishIdx, setDragOverDishIdx] = useState<number | null>(null);
-  const [draggedIngredient, setDraggedIngredient] = useState<{ menuIdx: number; tiempoIdx: number; ingredientIdx: number } | null>(null);
-  const [dragOverIngredientIdx, setDragOverIngredientIdx] = useState<number | null>(null);
   const draggedDishRef = useRef<typeof draggedDish>(null);
-  const draggedIngredientRef = useRef<typeof draggedIngredient>(null);
   const [removedDishes, setRemovedDishes] = useState<Array<{ menuIdx: number; tiempoIdx: number; nombre: string; ingredientes: Ingrediente[] }>>([]);
   const [removedIngredients, setRemovedIngredients] = useState<Array<{ menuIdx: number; tiempoIdx: number; ingrediente: Ingrediente }>>([]);
 
@@ -145,14 +200,16 @@ export const CreateEditPlanForm = ({
 
   const clearNativeDragState = useCallback(() => {
     draggedDishRef.current = null;
-    draggedIngredientRef.current = null;
     setDraggedTiempoIdx(null);
     setDragOverTiempoIdx(null);
     setDraggedDish(null);
     setDragOverDishIdx(null);
-    setDraggedIngredient(null);
-    setDragOverIngredientIdx(null);
   }, []);
+
+  const ingredientSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   useEffect(() => {
     const clearDrag = () => clearNativeDragState();
@@ -807,6 +864,15 @@ export const CreateEditPlanForm = ({
       if (targetIndex === undefined) return t;
       return { ...t, ingredientes: reorderIngredientWithinDish(t.ingredientes, ingredientIdx, targetIndex) };
     });
+  };
+
+  const dropIngredient = (menuIdx: number, tiempoIdx: number, event: DragEndEvent) => {
+    if (!event.over || event.active.id === event.over.id) return;
+    const overId = event.over.id;
+    updateTiempo(menuIdx, tiempoIdx, (tiempo) => ({
+      ...tiempo,
+      ingredientes: reorderIngredientFromDrag(tiempo.ingredientes, event.active.id, overId),
+    }));
   };
 
   // ─── Guardar tiempo como Platillo en la biblioteca ──────────────────────────
@@ -1808,49 +1874,33 @@ export const CreateEditPlanForm = ({
                                 </button>
                               </div>) : null}
                               <div className="space-y-4">
-                                {tiempo.ingredientes.map((ing, ii) => {
-                                  if ((ing.platillo || '') !== pName) return null;
+                                {(() => {
                                   const groupIndices = tiempo.ingredientes.map((item, index) => ({ item, index }))
                                     .filter(({ item }) => (item.platillo || '') === pName)
                                     .map(({ index }) => index);
-                                  const localIngredientIdx = groupIndices.indexOf(ii);
-                                  const isDraggingThis = draggedIngredient?.menuIdx === mi && draggedIngredient?.tiempoIdx === ti && draggedIngredient?.ingredientIdx === ii;
-                                  const isIngredientDragTarget = draggedIngredient?.menuIdx === mi && draggedIngredient?.tiempoIdx === ti && dragOverIngredientIdx === ii && !isDraggingThis;
+                                  const sortableIds = groupIndices.map(ingredientDragId);
+
                                   return (
-                                    <div
-                                      key={ing.id || `ing-${mi}-${ti}-${ii}`}
-                                      onDragOver={(event) => {
-                                        const activeIngredient = draggedIngredientRef.current || draggedIngredient;
-                                        if (!activeIngredient || activeIngredient.menuIdx !== mi || activeIngredient.tiempoIdx !== ti) return;
-                                        if ((tiempo.ingredientes[activeIngredient.ingredientIdx]?.platillo || '') !== pName) return;
-                                        event.preventDefault();
-                                        setDragOverIngredientIdx(ii);
-                                      }}
-                                      onDrop={(event) => {
-                                        const activeIngredient = draggedIngredientRef.current || draggedIngredient;
-                                        if (!activeIngredient || activeIngredient.menuIdx !== mi || activeIngredient.tiempoIdx !== ti) return;
-                                        event.preventDefault();
-                                        updateTiempo(mi, ti, current => ({
-                                          ...current,
-                                          ingredientes: reorderIngredientWithinDish(current.ingredientes, activeIngredient.ingredientIdx, ii),
-                                        }));
-                                        clearNativeDragState();
-                                      }}
-                                      className={`flex items-start gap-2 rounded-[6px] transition-all ${isIngredientDragTarget ? 'ring-1 ring-brand-primary/50 bg-brand-primary/5' : ''} ${isDraggingThis ? 'opacity-45' : ''}`}
+                                    <DndContext
+                                      sensors={ingredientSensors}
+                                      collisionDetection={closestCenter}
+                                      onDragEnd={(event) => dropIngredient(mi, ti, event)}
                                     >
+                                      <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                                        <div className="space-y-4">
+                                          {groupIndices.map((ii, localIngredientIdx) => {
+                                            const ing = tiempo.ingredientes[ii];
+                                            const sortableId = ingredientDragId(ii);
+                                            return (
+                                              <SortableIngredientRow key={ing.id || `${sortableId}-${ing.descripcion}`} id={sortableId}>
+                                                {(dragHandleProps) => (<>
                                       <div className="flex flex-col items-center gap-1 pt-1 shrink-0">
                                         <button
                                           type="button"
-                                          draggable
-                                          onDragStart={(event) => {
-                                            const activeIngredient = { menuIdx: mi, tiempoIdx: ti, ingredientIdx: ii };
-                                            draggedIngredientRef.current = activeIngredient;
-                                            setDraggedIngredient(activeIngredient);
-                                            beginNativeDrag(event.dataTransfer, 'ingredient', activeIngredient);
-                                          }}
-                                          onDragEnd={clearNativeDragState}
+                                          {...dragHandleProps}
                                           className="p-1.5 text-[#aaa] bg-[#222] border border-[#3a3a3a] hover:text-white rounded-[5px] cursor-grab active:cursor-grabbing"
                                           title="Arrastrar ingrediente"
+                                          aria-label={`Arrastrar ingrediente ${ing.descripcion || localIngredientIdx + 1}`}
                                         >
                                           <GripVertical className="h-3.5 w-3.5" />
                                         </button>
@@ -1874,9 +1924,15 @@ export const CreateEditPlanForm = ({
                                           onRemove={() => handleRemoveIngredient(mi, ti, ii)}
                                         />
                                       </div>
-                                    </div>
+                                                </>)}
+                                              </SortableIngredientRow>
+                                            );
+                                          })}
+                                        </div>
+                                      </SortableContext>
+                                    </DndContext>
                                   );
-                                })}
+                                })()}
 
                                 <button
                                   onClick={() => updateTiempo(mi, ti, (t) => ({ ...t, ingredientes: [...t.ingredientes, { ...emptyIngrediente(), platillo: pName }] }))}
@@ -2130,6 +2186,9 @@ export const CreateEditPlanForm = ({
 
                                             return {
                                               ...i,
+                                              // El id de la biblioteca no pertenece al ingrediente del plan. Una clave
+                                              // nueva evita duplicados de React al importar el mismo platillo más de una vez.
+                                              id: newClientIngredientId(),
                                               cantidad: scaledCant,
                                               eqCantidad: scaledEq,
                                               smaeGrPorEq: Number(i.smaeGrPorEq) || 0,

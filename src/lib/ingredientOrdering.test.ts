@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { Ingrediente } from '@/types';
-import { reorderDishGroups, reorderIngredientWithinDish } from './ingredientOrdering';
+import {
+  ingredientDragId,
+  reorderDishGroups,
+  reorderIngredientFromDrag,
+  reorderIngredientWithinDish,
+} from './ingredientOrdering';
 
 const item = (descripcion: string, platillo: string): Ingrediente => ({ descripcion, platillo, cantidad: 1, unidad: 'PZA' });
 
@@ -28,5 +33,14 @@ describe('ingredientOrdering', () => {
 
     expect(reordered.map((i) => i.descripcion)).toEqual(['Aguacate', 'Tortilla', 'Pollo', 'Yogur']);
     expect(reordered.slice(0, 3).every((i) => i.platillo === 'Tacos importados')).toBe(true);
+  });
+
+  it('resuelve los identificadores del sortable sin mover ingredientes de otro platillo', () => {
+    const source = [item('Pan', 'Sándwich'), item('Pollo', 'Sándwich'), item('Leche', 'Licuado')];
+
+    expect(reorderIngredientFromDrag(source, ingredientDragId(1), ingredientDragId(0)).map((i) => i.descripcion))
+      .toEqual(['Pollo', 'Pan', 'Leche']);
+    expect(reorderIngredientFromDrag(source, ingredientDragId(0), ingredientDragId(2))).toBe(source);
+    expect(reorderIngredientFromDrag(source, 'invalid', ingredientDragId(0))).toBe(source);
   });
 });

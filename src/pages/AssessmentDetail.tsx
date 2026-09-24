@@ -17,6 +17,7 @@ import { buildAvoidFoods } from '@/lib/avoidFoods';
 import { PreviousConsultationMenuPreview } from '@/components/PreviousConsultationMenuPreview';
 import { findPreviousConsultationPlan } from '@/lib/previousConsultationPlan';
 import { resolveAssessmentDietetica } from '@/lib/recall24';
+import { otrosBioquimicosFromValoracion } from '@/lib/laboratorio';
 import {
   APPOINTMENT_REQUEST_TIMEOUT_MS,
   getBookingFailureCopy
@@ -555,7 +556,7 @@ const AssessmentDetail = () => {
         )}
 
         {(() => {
-          if (isOnlineAssessment) return null;
+          if (isOnlineAssessment || pacienteInfo?.mostrarBioimpedancia === false) return null;
           const bio = val.bioimpedancia || {};
           const grasa = bio['Grasa %'];
           const agua = bio['Agua %'];
@@ -588,6 +589,55 @@ const AssessmentDetail = () => {
             </div>
           );
         })()}
+
+        {([
+          ['Glucosa', val.glucosa],
+          ['Triglicéridos', val.trigliceridos],
+          ['Colesterol', val.colesterol],
+          ['Creatinina', val.creatinina],
+          ['Ácido úrico', val.acidoUrico],
+        ] as const).some(([, value]) => value != null) || otrosBioquimicosFromValoracion(val).length > 0 ? (
+          <div className="border-b border-border-subtle p-6 md:p-8">
+            <p className="mb-5 text-[11px] font-bold uppercase tracking-widest text-text-muted">Bioquímica · Laboratorios</p>
+            <div className="grid grid-cols-2 gap-6 md:grid-cols-3">
+              {([
+                ['Glucosa', val.glucosa],
+                ['Triglicéridos', val.trigliceridos],
+                ['Colesterol', val.colesterol],
+                ['Creatinina', val.creatinina],
+                ['Ácido úrico', val.acidoUrico],
+              ] as const).filter(([, value]) => value != null).map(([label, value]) => (
+                <div key={label} className="space-y-1">
+                  <p className="m-0 text-[12px] font-medium text-text-secondary">{label}</p>
+                  <p className="m-0 text-[18px] font-bold text-text-primary">{String(value)} mg/dL</p>
+                </div>
+              ))}
+            </div>
+            {otrosBioquimicosFromValoracion(val).length > 0 && (
+              <div className="mt-5 space-y-1">
+                <p className="m-0 text-[12px] font-medium text-text-secondary">Otros resultados</p>
+                {otrosBioquimicosFromValoracion(val).map(item => (
+                  <p key={item.id} className="m-0 text-[14px] text-text-primary">{item.nombre}: {item.valor}</p>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null}
+
+        {Array.isArray(val.dinamicaDeportiva?.disciplinas) && val.dinamicaDeportiva.disciplinas.length > 0 && (
+          <div className="border-b border-border-subtle p-6 md:p-8">
+            <p className="mb-3 text-[11px] font-bold uppercase tracking-widest text-text-muted">Dinámica deportiva</p>
+            <p className="mb-4 text-[12px] text-text-secondary">Estado general: {val.dinamicaDeportiva.activo === false ? 'Pausado' : 'Activo'}</p>
+            <div className="space-y-2">
+              {val.dinamicaDeportiva.disciplinas.map((item: any, index: number) => (
+                <div key={index} className="flex flex-wrap items-center justify-between gap-2 text-[13px]">
+                  <span className="text-text-primary">{item.disciplina || 'Disciplina'} · {item.frecuencia || 'Sin frecuencia'} · {item.tiempo || 'Sin duración'}</span>
+                  <span className={val.dinamicaDeportiva.activo === false || item.activo === false ? 'text-text-muted' : 'text-text-primary'}>{val.dinamicaDeportiva.activo === false || item.activo === false ? 'Pausada' : 'Activa'}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {val.comentarios && (
           <div className="p-6 md:p-8 border-b border-border-subtle">

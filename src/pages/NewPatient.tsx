@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, User, Activity, Heart, Shield, Clock, BookOpen, ChevronDown, Plus, Trash2 } from 'lucide-react';
 import { DEFAULT_RECALL_24, type Recall24Row } from '@/lib/recall24';
@@ -10,10 +10,11 @@ import { encodeDisciplinas, type DisciplinaItem } from '@/lib/disciplinas';
 import DietTable from '@/components/DietTable';
 import { SupplementHistoryEditor } from '@/components/SupplementHistoryEditor';
 
-const Input = ({ label, value, onChange, placeholder, type = 'text', readOnly = false }: any) => (
+const Input = ({ label, value, onChange, placeholder, type = 'text', readOnly = false, inputRef }: any) => (
   <div className="space-y-2 group">
     <label className="text-[12px] font-medium text-text-secondary uppercase tracking-widest ml-1 leading-none">{label}</label>
     <input
+      ref={inputRef}
       type={type}
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -134,10 +135,14 @@ const NewPatient = () => {
   const [suplementosIniciales, setSuplementosIniciales] = useState<{ id: string; nombre: string; indicaciones: string; activo: boolean }[]>([]);
   const [habitos, setHabitos] = useState<Recall24Row[]>(DEFAULT_RECALL_24.map((row) => ({ ...row })));
 
-  const [disciplinas, setDisciplinas] = useState<DisciplinaItem[]>([{ disciplina: '', frecuencia: '', tiempo: '' }]);
-  const addDisciplina = () => setDisciplinas([...disciplinas, { disciplina: '', frecuencia: '', tiempo: '' }]);
+  const [disciplinas, setDisciplinas] = useState<DisciplinaItem[]>([{ disciplina: '', frecuencia: '', tiempo: '', activo: true }]);
+  const firstDisciplinaInputRef = useRef<HTMLInputElement>(null);
+  const addDisciplina = () => {
+    setDisciplinas(prev => [{ disciplina: '', frecuencia: '', tiempo: '', activo: true }, ...prev]);
+    requestAnimationFrame(() => firstDisciplinaInputRef.current?.focus());
+  };
   const removeDisciplina = (idx: number) => setDisciplinas(disciplinas.length > 1 ? disciplinas.filter((_, i) => i !== idx) : disciplinas);
-  const updateDisciplina = (idx: number, field: keyof DisciplinaItem, val: string) =>
+  const updateDisciplina = (idx: number, field: 'disciplina' | 'frecuencia' | 'tiempo', val: string) =>
     setDisciplinas(disciplinas.map((d, i) => i === idx ? { ...d, [field]: val } : d));
 
   const edad = useMemo(() => {
@@ -270,7 +275,7 @@ const NewPatient = () => {
           <Input label="Gimnasio de Origen" value={form.gymOrigen} onChange={(v: string) => update('gymOrigen', v)} placeholder="Nombre del club" />
           <Input label="Hora de Entrenamiento" value={form.horaEntrenamiento} onChange={(v: string) => update('horaEntrenamiento', v)} placeholder="Ej: 7:00am / Tarde" />
           <div className="col-span-full space-y-3">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col items-start gap-2">
               <label className="text-[12px] font-medium text-text-secondary uppercase tracking-widest ml-1">Disciplinas</label>
               <button
                 type="button"
@@ -282,7 +287,7 @@ const NewPatient = () => {
             </div>
             {disciplinas.map((d, idx) => (
               <div key={idx} className="grid sm:grid-cols-3 gap-3 items-end p-3 bg-bg-elevated/40 border border-border-subtle rounded-[8px] relative">
-                <Input label={`Disciplina ${disciplinas.length > 1 ? idx + 1 : ''}`} value={d.disciplina} onChange={(v: string) => updateDisciplina(idx, 'disciplina', v)} placeholder="Crossfit / Pesas / Correr" />
+                <Input inputRef={idx === 0 ? firstDisciplinaInputRef : undefined} label={`Disciplina ${disciplinas.length > 1 ? idx + 1 : ''}`} value={d.disciplina} onChange={(v: string) => updateDisciplina(idx, 'disciplina', v)} placeholder="Crossfit / Pesas / Correr" />
                 <Input label="Frecuencia" value={d.frecuencia} onChange={(v: string) => updateDisciplina(idx, 'frecuencia', v)} placeholder="EJ: 5 días a la semana" />
                 <div className="flex gap-2 items-end">
                   <div className="flex-1">

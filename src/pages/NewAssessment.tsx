@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Shield, Calendar as CalendarIcon, BookOpen, ChevronDown, FileText, Activity, GripVertical, Check, Droplets, MapPin, Wifi, Search } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -31,6 +31,7 @@ import {
 } from '@/lib/assessmentModality';
 import { DEFAULT_RECALL_24, normalizeRecall24, resolveAssessmentDietetica, serializeRecall24, type Recall24Row } from '@/lib/recall24';
 import { encodeDisciplinas, decodeDisciplinas, type DisciplinaItem } from '@/lib/disciplinas';
+import { hasLaboratorio, laboratorioFromValoracion } from '@/lib/laboratorio';
 import DietTable from '@/components/DietTable';
 import { SupplementHistoryEditor } from '@/components/SupplementHistoryEditor';
 import { PreviousConsultationMenuPreview } from '@/components/PreviousConsultationMenuPreview';
@@ -92,6 +93,7 @@ const NewAssessment = () => {
   const { confirm, ConfirmDialogComponent } = useConfirm();
   const [saving, setSaving] = useState(false);
   const [paciente, setPaciente] = useState<any>(null);
+  const mostrarBioimpedancia = paciente?.mostrarBioimpedancia !== false;
 
   const now = new Date();
   const [step, setStep] = useState(1);
@@ -113,13 +115,8 @@ const NewAssessment = () => {
     agua: '',
     musculo: '',
   });
-  const [laboratorio, setLaboratorio] = useState({
-    glucosa: '',
-    trigliceridos: '',
-    colesterol: '',
-    creatinina: '',
-    acidoUrico: '',
-  });
+  const [laboratorio, setLaboratorio] = useState(laboratorioFromValoracion(null));
+  const [laboratorioAnteriorFecha, setLaboratorioAnteriorFecha] = useState<string | null>(null);
   const [onlineMeasurements, setOnlineMeasurements] = useState({ ...EMPTY_ONLINE_MEASUREMENTS });
   const [comentarios, setComentarios] = useState('');
   const [temario, setTemario] = useState<{ id: string; tema: string; detalle: string }[]>([]);
@@ -169,11 +166,18 @@ const NewAssessment = () => {
   const [showExpediente, setShowExpediente] = useState(false);
   const [habitos, setHabitos] = useState<Recall24Row[]>(DEFAULT_RECALL_24.map((row) => ({ ...row })));
   const [showNotasConsulta, setShowNotasConsulta] = useState(true);
-  const [showDinamicaDeportiva, setShowDinamicaDeportiva] = useState(true);
-  const [disciplinas, setDisciplinas] = useState<DisciplinaItem[]>([{ disciplina: '', frecuencia: '', tiempo: '' }]);
-  const addDisciplina = () => setDisciplinas(prev => [...prev, { disciplina: '', frecuencia: '', tiempo: '' }]);
+  const [showDinamicaDeportiva, setShowDinamicaDeportiva] = useState(false);
+  const [showBioquimica, setShowBioquimica] = useState(false);
+  const [ejercicioActivo, setEjercicioActivo] = useState(true);
+  const [disciplinas, setDisciplinas] = useState<DisciplinaItem[]>([{ disciplina: '', frecuencia: '', tiempo: '', activo: true }]);
+  const firstDisciplinaInputRef = useRef<HTMLInputElement>(null);
+  const addDisciplina = () => {
+    setDisciplinas(prev => [{ disciplina: '', frecuencia: '', tiempo: '', activo: true }, ...prev]);
+    setExpedienteModified(true);
+    requestAnimationFrame(() => firstDisciplinaInputRef.current?.focus());
+  };
   const removeDisciplina = (idx: number) => setDisciplinas(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev);
-  const updateDisciplina = (idx: number, field: keyof DisciplinaItem, val: string) => {
+  const updateDisciplina = (idx: number, field: 'disciplina' | 'frecuencia' | 'tiempo', val: string) => {
     setDisciplinas(prev => prev.map((d, i) => i === idx ? { ...d, [field]: val } : d));
     setExpedienteModified(true);
   };
@@ -315,6 +319,15 @@ const NewAssessment = () => {
         musculo: d.bioimpedancia.musculo || '',
       });
     }
+    if (d.laboratorio) setLaboratorio({
+      ...laboratorioFromValoracion(null),
+      ...d.laboratorio,
+      otrosDetalle: Array.isArray(d.laboratorio.otrosDetalle)
+        ? d.laboratorio.otrosDetalle
+        : laboratorioFromValoracion({ otrosBioquimicos: d.laboratorio.otros }).otrosDetalle,
+    });
+    if (typeof d.ejercicioActivo === 'boolean') setEjercicioActivo(d.ejercicioActivo);
+    if (Array.isArray(d.disciplinas)) setDisciplinas(d.disciplinas.map((item: DisciplinaItem) => ({ ...item, activo: item.activo !== false })));
     if (d.onlineMeasurements) {
       setOnlineMeasurements(onlineMeasurementsFromPerimeters(d.onlineMeasurements));
     }
@@ -380,6 +393,9 @@ const NewAssessment = () => {
     // Re-llenar expediente desde datos del paciente
     const ej = p.ejercicio || p.datosEjercicio;
     const ant = p.antecedentes || {};
+    setEjercicioActivo(ej?.activo !== false);
+    setLaboratorio(laboratorioFromValoracion(lastVal));
+    setLaboratorioAnteriorFecha(lastVal && hasLaboratorio(lastVal) ? lastVal.fecha : null);
     setExpediente({
       objetivo: ej?.objetivo || '',
       nivelActividad: ej?.nivelActividad || '',
@@ -406,7 +422,7 @@ const NewAssessment = () => {
       cicloMenstrual: ant.cicloMenstrual || '',
       historialProductos: ant.historialProductos || '',
     });
-    setDisciplinas(decodeDisciplinas(ej?.disciplina, { frecuencia: ej?.frecuencia, tiempo: ej?.tiempo }));
+    setDisciplinas(decodeDisciplinas(ej?.disciplina, { frecuencia: ej?.frecuencia, tiempo: ej?.tiempo }, ej?.disciplinasDetalle));
     seedFarmacosDetalle(ant);
     seedHistorialSupDetalle(ant);
     setHabitos(resolveAssessmentDietetica(lastVal, p.habitos || p.consumoCalorico));
@@ -423,9 +439,9 @@ const NewAssessment = () => {
       ? [...temario, { id: '__comp__', tema: COMP_NOTES_MARKER, detalle: JSON.stringify(competencia) }]
       : temario;
     // adjuntos se excluyen del draft — base64 agota localStorage (5MB). Se pierden al recargar antes de guardar.
-    const draft = { step, peso, estatura, pctGrasa, consultaEnLinea, compositionMethod, bioimpedancia, onlineMeasurements, comentarios, temario: temarioParaDraft, barridoData, habitos: serializeRecall24(habitos), dieteticaInheritanceVersion: DIETETICA_DRAFT_VERSION, fecha, hora, proximaSesion, tieneSuplementos, suplementos, suplementacionActiva, suplementosDetalle, notasLibres };
+    const draft = { step, peso, estatura, pctGrasa, consultaEnLinea, compositionMethod, bioimpedancia, laboratorio, ejercicioActivo, disciplinas, onlineMeasurements, comentarios, temario: temarioParaDraft, barridoData, habitos: serializeRecall24(habitos), dieteticaInheritanceVersion: DIETETICA_DRAFT_VERSION, fecha, hora, proximaSesion, tieneSuplementos, suplementos, suplementacionActiva, suplementosDetalle, notasLibres };
     localStorage.setItem(`draft_assessment_${pacienteId}`, JSON.stringify(draft));
-  }, [step, peso, estatura, pctGrasa, consultaEnLinea, compositionMethod, bioimpedancia, onlineMeasurements, comentarios, temario, competencia, barridoData, habitos, fecha, hora, proximaSesion, pacienteId, isGrasaModified, tieneSuplementos, suplementos, suplementacionActiva, suplementosDetalle, notasLibres, isEdit]);
+  }, [step, peso, estatura, pctGrasa, consultaEnLinea, compositionMethod, bioimpedancia, laboratorio, ejercicioActivo, disciplinas, onlineMeasurements, comentarios, temario, competencia, barridoData, habitos, fecha, hora, proximaSesion, pacienteId, isGrasaModified, tieneSuplementos, suplementos, suplementacionActiva, suplementosDetalle, notasLibres, isEdit]);
 
   useEffect(() => {
     const fetchPatientAndData = async () => {
@@ -442,6 +458,7 @@ const NewAssessment = () => {
         setPaciente(p);
 
         const ej = p.ejercicio || p.datosEjercicio;
+        setEjercicioActivo(ej?.activo !== false);
         const ant2 = p.antecedentes || {};
         setExpediente({
           patologia: ant2.patologia || '',
@@ -471,7 +488,8 @@ const NewAssessment = () => {
         });
         setDisciplinas(decodeDisciplinas(
           p.datosEjercicio?.disciplina || ej?.disciplina,
-          { frecuencia: p.datosEjercicio?.frecuencia || ej?.frecuencia, tiempo: p.datosEjercicio?.tiempo || ej?.tiempo }
+          { frecuencia: p.datosEjercicio?.frecuencia || ej?.frecuencia, tiempo: p.datosEjercicio?.tiempo || ej?.tiempo },
+          p.datosEjercicio?.disciplinasDetalle || ej?.disciplinasDetalle
         ));
         seedFarmacosDetalle(ant2);
         seedHistorialSupDetalle(ant2);
@@ -545,13 +563,12 @@ const NewAssessment = () => {
               });
               setComentarios(val.comentarios || '');
               setPlanVinculadoId(val.plan?.id || null);
-              setLaboratorio({
-                glucosa: val.glucosa != null ? String(val.glucosa) : '',
-                trigliceridos: val.trigliceridos != null ? String(val.trigliceridos) : '',
-                colesterol: val.colesterol != null ? String(val.colesterol) : '',
-                creatinina: val.creatinina != null ? String(val.creatinina) : '',
-                acidoUrico: val.acidoUrico != null ? String(val.acidoUrico) : '',
-              });
+              setLaboratorio(laboratorioFromValoracion(val));
+              setLaboratorioAnteriorFecha(null);
+              if (Array.isArray(val.dinamicaDeportiva?.disciplinas)) {
+                setEjercicioActivo(val.dinamicaDeportiva.activo !== false);
+                setDisciplinas(decodeDisciplinas(null, {}, val.dinamicaDeportiva.disciplinas));
+              }
 
               const rawItems = (val.temarioConsulta && Array.isArray(val.temarioConsulta))
                 ? val.temarioConsulta
@@ -594,6 +611,8 @@ const NewAssessment = () => {
           if (vals.length > 0) {
             lastVal = [...vals].sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())[0];
           }
+          setLaboratorio(laboratorioFromValoracion(lastVal));
+          setLaboratorioAnteriorFecha(lastVal && hasLaboratorio(lastVal) ? lastVal.fecha : null);
           setHabitos(resolveAssessmentDietetica(lastVal, p.habitos || p.consumoCalorico));
 
           // Peso (siempre limpio en nueva valoración)
@@ -722,7 +741,11 @@ const NewAssessment = () => {
 
   const handleSave = async (redirectAPlan: boolean | 'equivalencias' = false) => {
     if (!peso && measurementStatuses.peso === 'REGISTRADA') { toast({ title: 'Peso incompleto', description: 'Captura el peso o cambia su estado.', variant: 'destructive' }); return; }
-    if (!consultaEnLinea && compositionMethod === 'BIOIMPEDANCIA') {
+    if (laboratorio.otrosDetalle.some(item => (item.nombre.trim() === '') !== (item.valor.trim() === ''))) {
+      toast({ title: 'Resultado incompleto', description: 'Escribe el nombre y el valor de cada resultado adicional.', variant: 'destructive' });
+      return;
+    }
+    if (mostrarBioimpedancia && !consultaEnLinea && compositionMethod === 'BIOIMPEDANCIA') {
       const bioValues = Object.values(bioimpedancia).filter(value => value.trim() !== '');
       if (bioValues.length === 0) {
         toast({ title: 'Bioimpedancia incompleta', description: 'Captura al menos uno de los resultados de bioimpedancia.', variant: 'destructive' });
@@ -783,7 +806,7 @@ const NewAssessment = () => {
         ...measurementStatuses,
         estatura: consultaEnLinea ? 'NO_APLICA' : (estatura ? 'REGISTRADA' : measurementStatuses.estatura),
         consultaEnLinea,
-        metodoComposicion: consultaEnLinea ? 'FOTOSCOPIA' : compositionMethod,
+        metodoComposicion: consultaEnLinea ? 'FOTOSCOPIA' : (!mostrarBioimpedancia && !isEdit ? 'ANTROPOMETRIA' : compositionMethod),
       },
       comentarios,
       temario: (() => {
@@ -800,6 +823,10 @@ const NewAssessment = () => {
       // Fotografía de Dietética de esta consulta. El barrido de esta valoración se
       // sincroniza únicamente contra estas filas, sin mezclar consultas anteriores.
       dietetica: serializeRecall24(habitos),
+      dinamicaDeportiva: {
+        activo: ejercicioActivo,
+        disciplinas: encodeDisciplinas(disciplinas).disciplinasDetalle,
+      },
       // proximaSesion NO se manda aquí — ese campo vive en Plan, no en Valoracion.
       // Se guarda en estado React y se pasa como prop a CreateEditPlanForm.
     };
@@ -808,7 +835,7 @@ const NewAssessment = () => {
       body.perimetros = buildOnlinePerimeters(onlineMeasurements);
     }
 
-    if (!consultaEnLinea && compositionMethod === 'BIOIMPEDANCIA') {
+    if (mostrarBioimpedancia && !consultaEnLinea && compositionMethod === 'BIOIMPEDANCIA') {
       // Energía está bloqueada a captura manual: se llena y guarda únicamente con el
       // total calculado en el barrido de equivalencias de esta consulta.
       body.bioimpedancia = {
@@ -817,7 +844,7 @@ const NewAssessment = () => {
         'Músculo (kg)': bioimpedancia.musculo.trim() === '' ? null : Number(bioimpedancia.musculo),
         'Energía (kcal)': barridoData?.kcalTotal ? Math.round(barridoData.kcalTotal) : null,
       };
-    } else if (isEdit) {
+    } else if (isEdit && mostrarBioimpedancia) {
       // Al cambiar una valoración existente de bioimpedancia a antropometría,
       // se eliminan los resultados anteriores para evitar mostrarlos en el PDF.
       body.bioimpedancia = {
@@ -828,13 +855,15 @@ const NewAssessment = () => {
       };
     }
 
-    if (Object.values(laboratorio).some(v => v.trim() !== '')) {
-      body.glucosa = laboratorio.glucosa.trim() === '' ? null : parseFloat(laboratorio.glucosa);
-      body.trigliceridos = laboratorio.trigliceridos.trim() === '' ? null : parseFloat(laboratorio.trigliceridos);
-      body.colesterol = laboratorio.colesterol.trim() === '' ? null : parseFloat(laboratorio.colesterol);
-      body.creatinina = laboratorio.creatinina.trim() === '' ? null : parseFloat(laboratorio.creatinina);
-      body.acidoUrico = laboratorio.acidoUrico.trim() === '' ? null : parseFloat(laboratorio.acidoUrico);
-    }
+    body.glucosa = laboratorio.glucosa.trim() === '' ? null : parseFloat(laboratorio.glucosa);
+    body.trigliceridos = laboratorio.trigliceridos.trim() === '' ? null : parseFloat(laboratorio.trigliceridos);
+    body.colesterol = laboratorio.colesterol.trim() === '' ? null : parseFloat(laboratorio.colesterol);
+    body.creatinina = laboratorio.creatinina.trim() === '' ? null : parseFloat(laboratorio.creatinina);
+    body.acidoUrico = laboratorio.acidoUrico.trim() === '' ? null : parseFloat(laboratorio.acidoUrico);
+    body.bioquimicosOtrosDetalle = laboratorio.otrosDetalle
+      .filter(item => item.nombre.trim() && item.valor.trim())
+      .map(item => ({ id: item.id, nombre: item.nombre.trim(), valor: item.valor.trim() }));
+    body.otrosBioquimicos = null;
 
     if (measurementStatuses.pctGrasa === 'REGISTRADA' && pctGrasa) {
       // pctGrasa (no pctGrasaCorp): backend lo destructura para calcular pctGrasa2comp/kgGrasa2comp/kgMasaMagra2comp
@@ -895,6 +924,7 @@ const NewAssessment = () => {
               gymOrigen: expediente.gymOrigen,
               horaEntrenamiento: expediente.horaEntrenamiento,
               ...encodeDisciplinas(disciplinas),
+              activo: ejercicioActivo,
               porcentajeSedentario: parseInt(expediente.porcentajeSedentario) || 10,
               porcentajeLeve: parseInt(expediente.porcentajeLeve) || 20,
               porcentajeModerado: parseInt(expediente.porcentajeModerado) || 30,
@@ -921,7 +951,10 @@ const NewAssessment = () => {
           });
           setExpedienteModified(false);
         } catch (e) {
-          console.warn('No se pudo actualizar expediente:', e);
+          console.error('No se pudo actualizar expediente:', e);
+          toast({ title: 'No se guardó el expediente', description: 'Revisa los datos del expediente y vuelve a intentar. La valoración todavía no se ha guardado.', variant: 'destructive' });
+          setSaving(false);
+          return;
         }
       }
 
@@ -1239,16 +1272,54 @@ const NewAssessment = () => {
                       }}
                     />
 
-                    {/* Laboratorio */}
-                    <div>
-                      <p className="text-[10px] font-bold text-[#8a8a8a] uppercase tracking-widest mb-3">Laboratorio</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-5">
-                        <Field label="Glucosa" value={laboratorio.glucosa} onChange={(value) => setLaboratorio(prev => ({ ...prev, glucosa: value }))} suffix="mg/dL" placeholder="Ej. 92" />
-                        <Field label="Triglicéridos" value={laboratorio.trigliceridos} onChange={(value) => setLaboratorio(prev => ({ ...prev, trigliceridos: value }))} suffix="mg/dL" placeholder="Ej. 130" />
-                        <Field label="Colesterol" value={laboratorio.colesterol} onChange={(value) => setLaboratorio(prev => ({ ...prev, colesterol: value }))} suffix="mg/dL" placeholder="Ej. 180" />
-                        <Field label="Creatinina" value={laboratorio.creatinina} onChange={(value) => setLaboratorio(prev => ({ ...prev, creatinina: value }))} suffix="mg/dL" placeholder="Ej. 0.9" />
-                        <Field label="Ácido Úrico" value={laboratorio.acidoUrico} onChange={(value) => setLaboratorio(prev => ({ ...prev, acidoUrico: value }))} suffix="mg/dL" placeholder="Ej. 5.2" />
+                  </div>
+                )}
+              </div>
+
+              {/* ── BIOQUÍMICA ── */}
+              <div className="bg-[#111111] border border-[#2a2a2a] rounded-[16px] shrink-0 overflow-hidden">
+                <button type="button" onClick={() => setShowBioquimica(s => !s)} className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#181818] transition-colors">
+                  <div className="flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-brand-primary" />
+                    <span className="text-[13px] font-bold text-white tracking-widest uppercase">Bioquímica · Laboratorios</span>
+                    {(laboratorio.otrosDetalle.length > 0 || [laboratorio.glucosa, laboratorio.trigliceridos, laboratorio.colesterol, laboratorio.creatinina, laboratorio.acidoUrico].some(Boolean)) && <span className="w-2 h-2 rounded-full bg-brand-primary shrink-0" />}
+                  </div>
+                  <ChevronDown className={`w-4 h-4 text-[#8a8a8a] transition-transform duration-200 ${showBioquimica ? 'rotate-180' : ''}`} />
+                </button>
+                {showBioquimica && (
+                  <div className="px-5 pb-5 pt-4 space-y-4 border-t border-[#2a2a2a]">
+                    {laboratorioAnteriorFecha && !isEdit && (
+                      <p className="m-0 text-[11px] text-[#8a8a8a]">
+                        Resultados heredados de la consulta del {new Date(laboratorioAnteriorFecha).toLocaleDateString('es-MX', { timeZone: 'UTC' })}. Revisa y actualiza los valores antes de guardar.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-5">
+                      <Field label="Glucosa" value={laboratorio.glucosa} onChange={(value) => setLaboratorio(prev => ({ ...prev, glucosa: value }))} suffix="mg/dL" placeholder="Ej. 92" />
+                      <Field label="Triglicéridos" value={laboratorio.trigliceridos} onChange={(value) => setLaboratorio(prev => ({ ...prev, trigliceridos: value }))} suffix="mg/dL" placeholder="Ej. 130" />
+                      <Field label="Colesterol" value={laboratorio.colesterol} onChange={(value) => setLaboratorio(prev => ({ ...prev, colesterol: value }))} suffix="mg/dL" placeholder="Ej. 180" />
+                      <Field label="Creatinina" value={laboratorio.creatinina} onChange={(value) => setLaboratorio(prev => ({ ...prev, creatinina: value }))} suffix="mg/dL" placeholder="Ej. 0.9" />
+                      <Field label="Ácido Úrico" value={laboratorio.acidoUrico} onChange={(value) => setLaboratorio(prev => ({ ...prev, acidoUrico: value }))} suffix="mg/dL" placeholder="Ej. 5.2" />
+                    </div>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="m-0 text-[10px] font-bold text-[#8a8a8a] uppercase tracking-widest">Otros resultados</p>
+                        <button type="button" onClick={() => setLaboratorio(prev => ({ ...prev, otrosDetalle: [...prev.otrosDetalle, { id: crypto.randomUUID(), nombre: '', valor: '' }] }))} className="flex items-center gap-1.5 rounded-[6px] border border-[#333] bg-[#181818] px-3 py-1.5 text-[11px] font-bold text-white hover:border-[#555]">
+                          <Plus className="h-3 w-3" /> Agregar resultado
+                        </button>
                       </div>
+                      {laboratorio.otrosDetalle.map((item, index) => (
+                        <div key={item.id} className="grid grid-cols-1 gap-3 rounded-[8px] border border-[#333] bg-[#181818] p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-bold uppercase tracking-widest text-[#8a8a8a]">Estudio {index + 1}</label>
+                            <input type="text" value={item.nombre} onChange={(e) => setLaboratorio(prev => ({ ...prev, otrosDetalle: prev.otrosDetalle.map(row => row.id === item.id ? { ...row, nombre: e.target.value } : row) }))} placeholder="Ej. Vitamina D" className="w-full rounded-[6px] border border-[#333] bg-[#111] px-3 py-2 text-[13px] text-white outline-none focus:border-[#555]" />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="block text-[10px] font-bold uppercase tracking-widest text-[#8a8a8a]">Valor y unidad</label>
+                            <input type="text" value={item.valor} onChange={(e) => setLaboratorio(prev => ({ ...prev, otrosDetalle: prev.otrosDetalle.map(row => row.id === item.id ? { ...row, valor: e.target.value } : row) }))} placeholder="Ej. 35 ng/mL" className="w-full rounded-[6px] border border-[#333] bg-[#111] px-3 py-2 text-[13px] text-white outline-none focus:border-[#555]" />
+                          </div>
+                          <button type="button" onClick={() => setLaboratorio(prev => ({ ...prev, otrosDetalle: prev.otrosDetalle.filter(row => row.id !== item.id) }))} title="Quitar resultado" className="rounded-[6px] p-2 text-[#8a8a8a] hover:bg-[#222] hover:text-red-400"><Trash2 className="h-4 w-4" /></button>
+                        </div>
+                      ))}
                     </div>
                   </div>
                 )}
@@ -1270,6 +1341,14 @@ const NewAssessment = () => {
                 </button>
                 {showDinamicaDeportiva && (
                   <div className="px-5 pb-5 pt-4 space-y-4 border-t border-[#2a2a2a]">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="m-0 text-[12px] text-[#8a8a8a]">La pausa general detiene todas las disciplinas; al reanudar se conserva la pausa individual de cada una.</p>
+                      <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                        <input type="checkbox" className="sr-only peer" checked={ejercicioActivo} onChange={(e) => { setEjercicioActivo(e.target.checked); setExpedienteModified(true); }} />
+                        <div className="w-11 h-6 bg-[#333] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-primary"></div>
+                        <span className="ml-3 text-[12px] font-bold text-white uppercase tracking-wider">{ejercicioActivo ? 'Activo' : 'Pausado'}</span>
+                      </label>
+                    </div>
                     <div className="grid grid-cols-1 xs:grid-cols-2 md:grid-cols-3 gap-3">
                       {([
                         { label: 'Objetivo', field: 'objetivo' },
@@ -1289,7 +1368,7 @@ const NewAssessment = () => {
                     </div>
 
                     <div className="space-y-3">
-                      <div className="flex items-center justify-between">
+                      <div className="flex flex-col items-start gap-2">
                         <p className="text-[10px] font-bold text-[#8a8a8a] uppercase tracking-widest m-0">Disciplinas</p>
                         <button
                           type="button"
@@ -1301,9 +1380,18 @@ const NewAssessment = () => {
                       </div>
                       {disciplinas.map((d, idx) => (
                         <div key={idx} className="grid sm:grid-cols-3 gap-3 items-end p-3 bg-[#181818] border border-[#333] rounded-[8px] relative">
+                          <div className="sm:col-span-3 flex items-center justify-between gap-3">
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#8a8a8a]">{`Disciplina ${idx + 1}`}</span>
+                            <label className="relative inline-flex items-center cursor-pointer">
+                              <input type="checkbox" className="sr-only peer" checked={d.activo !== false} onChange={(e) => { setDisciplinas(prev => prev.map((row, i) => i === idx ? { ...row, activo: e.target.checked } : row)); setExpedienteModified(true); }} />
+                              <div className="w-11 h-6 bg-[#333] rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-brand-primary"></div>
+                              <span className="ml-3 text-[11px] font-bold uppercase text-white">{d.activo === false ? 'Pausada' : 'Activa'}</span>
+                            </label>
+                          </div>
                           <div className="space-y-1">
                             <label className="text-[10px] font-bold text-[#8a8a8a] uppercase tracking-widest">{`Disciplina${disciplinas.length > 1 ? ` ${idx + 1}` : ''}`}</label>
                             <input
+                              ref={idx === 0 ? firstDisciplinaInputRef : undefined}
                               type="text"
                               value={d.disciplina}
                               onChange={(e) => updateDisciplina(idx, 'disciplina', e.target.value)}
@@ -1811,13 +1899,13 @@ const NewAssessment = () => {
                   <div className="flex items-center gap-2">
                     <Activity className="w-4 h-4 text-brand-primary" />
                     <span className="text-[13px] font-bold text-white tracking-widest uppercase">Mediciones corporales</span>
-                    {(peso || pctGrasa || Object.values(bioimpedancia).some(Boolean)) && <span className="w-2 h-2 rounded-full bg-brand-primary shrink-0" />}
+                    {(peso || pctGrasa || (mostrarBioimpedancia && Object.values(bioimpedancia).some(Boolean))) && <span className="w-2 h-2 rounded-full bg-brand-primary shrink-0" />}
                   </div>
                   <ChevronDown className={`w-4 h-4 text-[#8a8a8a] transition-transform duration-200 ${showMedidas ? 'rotate-180' : ''}`} />
                 </button>
                 {showMedidas && (
                   <div className="px-5 pb-5 border-t border-[#2a2a2a] pt-4">
-                    {!consultaEnLinea && (
+                    {!consultaEnLinea && mostrarBioimpedancia && (
                       <div className="mb-5 flex flex-col gap-3 rounded-[10px] border border-[#292929] bg-[#151515] p-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="mb-1 text-[10px] font-bold uppercase tracking-widest text-[#8a8a8a]">Método de composición corporal</p>
@@ -1847,7 +1935,7 @@ const NewAssessment = () => {
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-6 gap-y-5">
                       <Field label="Fecha" value={fecha} onChange={setFecha} type="date" />
                       <Field label="Hora" value={hora} onChange={setHora} type="time" />
-                      {!consultaEnLinea && compositionMethod === 'ANTROPOMETRIA' ? (
+                      {!consultaEnLinea && (!mostrarBioimpedancia || compositionMethod === 'ANTROPOMETRIA') ? (
                         <Field label="Masa Muscular" value={masaMagra !== null ? masaMagra.toFixed(2) : ''} disabled suffix="kg" placeholder="Auto" status={measurementStatuses.masaMagra} onStatusChange={(status) => setMeasurementStatuses(prev => ({ ...prev, masaMagra: status }))} />
                       ) : (
                         <Field label="Peso" value={peso} onChange={(value) => { setPeso(value); setMeasurementStatuses(prev => ({ ...prev, peso: value ? 'REGISTRADA' : 'NO_CAPTURADA' })); }} suffix="kg" placeholder="Ej. 68.5" status={measurementStatuses.peso} onStatusChange={(status) => { setMeasurementStatuses(prev => ({ ...prev, peso: status })); if (status === 'NO_APLICA') setPeso(''); }} />
@@ -1859,7 +1947,7 @@ const NewAssessment = () => {
                           <Field label="Cintura" value={onlineMeasurements.cintura} onChange={(value) => { setOnlineMeasurements(prev => ({ ...prev, cintura: value })); setIsGrasaModified(true); }} suffix="cm" placeholder="Ej. 78.4" />
                           <Field label="Cadera" value={onlineMeasurements.cadera} onChange={(value) => { setOnlineMeasurements(prev => ({ ...prev, cadera: value })); setIsGrasaModified(true); }} suffix="cm" placeholder="Ej. 96.1" />
                         </>
-                      ) : compositionMethod === 'ANTROPOMETRIA' ? (
+                      ) : !mostrarBioimpedancia || compositionMethod === 'ANTROPOMETRIA' ? (
                         <>
                           <Field label="Peso" value={peso} onChange={(value) => { setPeso(value); setMeasurementStatuses(prev => ({ ...prev, peso: value ? 'REGISTRADA' : 'NO_CAPTURADA' })); }} suffix="kg" placeholder="Ej. 68.5" status={measurementStatuses.peso} onStatusChange={(status) => { setMeasurementStatuses(prev => ({ ...prev, peso: status })); if (status === 'NO_APLICA') setPeso(''); }} />
                           <Field label="% Grasa Corp." value={pctGrasa} onChange={handlePctGrasaChange} placeholder="Ej. 24.3" status={measurementStatuses.pctGrasa} onStatusChange={(status) => { setMeasurementStatuses(prev => ({ ...prev, pctGrasa: status })); if (status === 'NO_APLICA') { setPctGrasa(''); setKgGrasa(''); } }} />

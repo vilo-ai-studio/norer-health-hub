@@ -60,6 +60,8 @@ export interface Ejercicio {
   horaEntrenamiento?: string | null;
   frecuencia?: string;
   tiempo?: string;
+  activo?: boolean;
+  disciplinasDetalle?: { disciplina: string; frecuencia: string; tiempo: string; activo: boolean }[];
   detallesAdicionales?: string | null;
   nivelActividad?: string;
   porcentajeSedentario?: number;
@@ -153,6 +155,9 @@ export interface Valoracion {
   composicion?: Record<string, number>;
   bioimpedancia?: Record<string, number>;
   bioquimicos?: Record<string, number>;
+  otrosBioquimicos?: string | null;
+  bioquimicosOtrosDetalle?: { id?: string; nombre: string; valor: string }[];
+  dinamicaDeportiva?: { activo: boolean; disciplinas: { disciplina: string; frecuencia: string; tiempo: string; activo: boolean }[] };
   signosVitales?: Record<string, any>;
   competencia?: Record<string, string>;
   comentarios?: string;

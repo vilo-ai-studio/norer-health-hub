@@ -8,6 +8,7 @@ import api from '@/lib/api';
 import type { Paciente, Valoracion, Plan } from '@/types';
 import { formatDate, formatDateShort, formatDecimal, getBadgeForValuation } from '@/lib/format';
 import { formatDisciplinasForDisplay } from '@/lib/disciplinas';
+import { otrosBioquimicosFromValoracion } from '@/lib/laboratorio';
 import { useToast } from '@/hooks/use-toast';
 import { useConfirm } from '@/components/ui/ConfirmDialog';
 import {
@@ -637,6 +638,7 @@ const PatientProfile = () => {
 
               <div className="grid lg:grid-cols-2 gap-8 mt-6">
                 <ClinicalSection title="Estilo de Vida y Dinámica" icon={Activity} data={{
+                  'Estado del ejercicio': (paciente.ejercicio || (paciente as any).datosEjercicio)?.activo === false ? 'Pausado' : 'Activo',
                   'Objetivo': (paciente.ejercicio || (paciente as any).datosEjercicio)?.objetivo || 'N/A',
                   'Gym de Origen': (paciente.ejercicio || (paciente as any).datosEjercicio)?.gymOrigen || 'N/A',
                   'Hora Entrenamiento': (paciente.ejercicio || (paciente as any).datosEjercicio)?.horaEntrenamiento || 'N/A',
@@ -645,7 +647,8 @@ const PatientProfile = () => {
                     {
                       frecuencia: (paciente.ejercicio || (paciente as any).datosEjercicio)?.frecuencia,
                       tiempo: (paciente.ejercicio || (paciente as any).datosEjercicio)?.tiempo,
-                    }
+                    },
+                    (paciente.ejercicio || (paciente as any).datosEjercicio)?.disciplinasDetalle
                   ),
                   'Nivel Actividad': (paciente.ejercicio || (paciente as any).datosEjercicio)?.nivelActividad || 'N/A',
                   'Distribución Actividad': `${(paciente.ejercicio || (paciente as any).datosEjercicio)?.porcentajeSedentario || 0}% S / ${(paciente.ejercicio || (paciente as any).datosEjercicio)?.porcentajeLeve || 0}% L / ${(paciente.ejercicio || (paciente as any).datosEjercicio)?.porcentajeModerado || 0}% M / ${(paciente.ejercicio || (paciente as any).datosEjercicio)?.porcentajeIntenso || 0}% I`,
@@ -980,6 +983,15 @@ const PatientProfile = () => {
                   </AreaChart>
                 </ResponsiveContainer>
               </ChartBox>
+            </section>
+          )}
+
+          {currentVal && otrosBioquimicosFromValoracion(currentVal).length > 0 && (
+            <section className="rounded-[12px] border border-border-default bg-bg-surface p-5">
+              <p className="m-0 mb-2 text-[10px] font-bold uppercase tracking-widest text-text-muted">Bioquímica · Otros resultados</p>
+              {otrosBioquimicosFromValoracion(currentVal).map(item => (
+                <p key={item.id} className="m-0 text-[13px] text-text-primary">{item.nombre}: {item.valor}</p>
+              ))}
             </section>
           )}
 

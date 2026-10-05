@@ -11,7 +11,9 @@ const roundMeasure = (value: number): number => parseFloat(value.toFixed(2));
 export const amountPerBaseEquivalent = (referenceAmount: unknown, referenceEquivalents: unknown): number => {
   const amount = positive(referenceAmount);
   const equivalents = positive(referenceEquivalents) || 1;
-  return amount > 0 ? roundMeasure(amount / equivalents) : 0;
+  // Keep full precision for later conversions (1 serv / 3 eq must return to 1 serv).
+  // Round only the physical quantity shown/saved, never the conversion ratio.
+  return amount > 0 ? amount / equivalents : 0;
 };
 
 /**

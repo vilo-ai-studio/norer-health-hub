@@ -16,6 +16,7 @@ interface PortalAuthState {
 }
 
 const getInitialToken = () => Cookies.get('norder_portal_token') || null;
+const cookieOptions = () => ({ expires: 30, sameSite: 'Strict' as const, secure: window.location.protocol === 'https:' });
 
 const getInitialPaciente = (): PortalPaciente | null => {
   try {
@@ -30,8 +31,8 @@ export const usePortalAuthStore = create<PortalAuthState>((set) => ({
   token: getInitialToken(),
   paciente: getInitialPaciente(),
   setPortalAuth: (token, paciente) => {
-    Cookies.set('norder_portal_token', token, { expires: 30 });
-    Cookies.set('norder_portal_paciente', JSON.stringify(paciente), { expires: 30 });
+    Cookies.set('norder_portal_token', token, cookieOptions());
+    Cookies.set('norder_portal_paciente', JSON.stringify(paciente), cookieOptions());
     set({ token, paciente });
   },
   clearPortalAuth: () => {

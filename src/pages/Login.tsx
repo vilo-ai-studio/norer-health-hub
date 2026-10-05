@@ -49,6 +49,7 @@ const Login = () => {
     } catch (err: any) {
       setError(err.response?.data?.message || 'Credenciales no válidas.');
     } finally {
+      setPassword('');
       setLoading(false);
     }
   };
@@ -73,6 +74,7 @@ const Login = () => {
                 <label className="text-[10px] font-black text-white/20 uppercase tracking-[0.3em] ml-1 leading-none">ID del Especialista</label>
                 <input
                   type="email"
+                  autoComplete="username"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="w-full bg-white/5 border border-white/10 focus:border-white/30 rounded-none px-4 py-3 text-white text-sm font-black transition-all outline-none placeholder:text-white/10"
@@ -86,6 +88,7 @@ const Login = () => {
                 <div className="relative">
                   <input
                     type={showPass ? 'text' : 'password'}
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full bg-white/5 border border-white/10 focus:border-white/30 rounded-none px-4 py-3 text-white text-sm font-black transition-all outline-none pr-12 placeholder:text-white/10 font-mono"

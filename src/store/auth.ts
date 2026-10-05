@@ -3,6 +3,7 @@ import type { AuthState, User } from '@/types';
 import Cookies from 'js-cookie';
 
 const getInitialToken = () => Cookies.get('norder_token') || null;
+const cookieOptions = () => ({ expires: 30, sameSite: 'Strict' as const, secure: window.location.protocol === 'https:' });
 
 const getInitialUser = (): User | null => {
   try {
@@ -18,15 +19,15 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: getInitialUser(),
   apiUrl: import.meta.env.VITE_API_URL || 'http://localhost:3000',
   setAuth: (token, user) => {
-    Cookies.set('norder_token', token, { expires: 30 }); // 30 días manteniéndose conectado
-    Cookies.set('norder_user', JSON.stringify(user), { expires: 30 });
+    Cookies.set('norder_token', token, cookieOptions()); // 30 días manteniéndose conectado
+    Cookies.set('norder_user', JSON.stringify(user), cookieOptions());
     set({ token, user });
   },
   updateUser: (newUser) => {
     set((state) => {
       if (state.user) {
         const updated = { ...state.user, ...newUser };
-        Cookies.set('norder_user', JSON.stringify(updated), { expires: 30 });
+        Cookies.set('norder_user', JSON.stringify(updated), cookieOptions());
         return { user: updated };
       }
       return state;

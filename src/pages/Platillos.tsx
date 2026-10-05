@@ -439,6 +439,7 @@ const Platillos = () => {
                     key={ing.id || idx}
                     index={idx}
                     ingrediente={ing}
+                    readonlyCatalog={true}
                     onUpdate={(upd) => updateIngrediente(idx, upd)}
                     onRemove={() => removeIngrediente(idx)}
                   />

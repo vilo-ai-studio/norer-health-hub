@@ -4,6 +4,7 @@ import api from '@/lib/api';
 import { useToast } from '@/components/ui/use-toast';
 import type { Ingrediente, EquivalenciaItem } from '@/types';
 import { normalizeGroup, SMAE_GROUP_LABELS } from '@/lib/smaeGroups';
+import { normalizeSmaeUnit } from '@/lib/smaeUnits';
 import { amountPerBaseEquivalent, buildScaledCatalogEquivalences } from '@/lib/smaeCatalogScaling';
 
 // ─── Label legible por grupo SMAE ─────────────────────────────────────────────
@@ -41,10 +42,7 @@ const GRUPO_COLORS: Record<string, string> = {
 // Alimentos con otra unidad base (ml, pz, serv...) usan ese código en mayúsculas como su propio
 // "ancla" — así toda la lógica de auto-conversión gramos↔eq sigue funcionando igual, solo que
 // comparada contra la unidad ancla real del alimento en vez de 'GR' fijo.
-const unidadBaseToCode = (base?: string): string => {
-  const b = (base || 'g').trim().toLowerCase();
-  return b === 'g' ? 'GR' : b.toUpperCase();
-};
+const unidadBaseToCode = (base?: string): string => normalizeSmaeUnit(base || 'g');
 
 interface SmaeAlimento {
   id: string;
@@ -96,7 +94,7 @@ const loadSmae = async (): Promise<SmaeAlimento[]> => {
 };
 
 // ─── Componente ───────────────────────────────────────────────────────────────
-export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onUpdate, onRemove, readonlyCatalog = false }: Props) => {
+export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onUpdate, onRemove, readonlyCatalog = true }: Props) => {
   const { toast } = useToast();
   const [allAlimentos, setAllAlimentos] = useState<SmaeAlimento[]>([]);
   const [query, setQuery] = useState(ing.descripcion || '');
@@ -107,7 +105,7 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
   const [cantidad, setCantidad] = useState<string>(ing.cantidad?.toString() || '');
   // Estado interno SIEMPRE en mayúsculas: la lógica de conversión compara contra 'GR'
   // (la BD puede traer unidades en minúsculas; el display se hace lowercase vía CSS)
-  const [unidad, setUnidad] = useState((ing.unidad || 'GR').toUpperCase());
+  const [unidad, setUnidad] = useState(normalizeSmaeUnit(ing.unidad || 'GR'));
 
   // ─── smaeGrPorEq: gramos por 1 equivalencia (persiste en BD) ──────────────
   // Si el ingrediente ya tiene este valor (reload desde BD), lo usamos directamente.
@@ -116,6 +114,7 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
   const [smaePiezasPorEq, setSmaePiezasPorEq] = useState<number>(0); // piezas/porción casera por 1 eq (catálogo)
   const [smaeGrupoKey, setSmaeGrupoKey] = useState<string>(''); // clave interna del grupo (ej. 'aoaMuyBajo')
   const [smaeUnidadBase, setSmaeUnidadBase] = useState<string>('g'); // unidad del ancla (g, ml, etc.) — viene del catálogo
+  const [smaeUnidadPorcion, setSmaeUnidadPorcion] = useState<string>('');
   // Código de la unidad ancla para ESTE alimento (ej. 'GR' o 'ML'). Reemplaza el 'GR' fijo
   // que antes se usaba en toda la lógica de auto-conversión gramos↔eq.
   const anchorUnit = unidadBaseToCode(smaeUnidadBase);
@@ -172,14 +171,7 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
   // ─── Carga catálogo una sola vez ───────────────────────────────────────────
   useEffect(() => { loadSmae().then(setAllAlimentos); }, []);
 
-  // ─── Re-derivar ancla piezas + grupo + grPorEq desde catálogo al cargar ingrediente ──
-  // Si el nutriólogo actualizó la equivalencia en Equivalencias SMAE (ej: 20g → 60g por Eq),
-  // al abrir cualquier platillo que use ese alimento:
-  //   • El ancla (smaeGrPorEq) se actualiza al valor del catálogo.
-  //   • Los GRAMOS se recalculan manteniendo fijo el número de Eq guardado.
-  //     Ejemplo: platillo tenía 2 Eq → nuevo ancla 60g → cantidad = 2 × 60 = 120g
-  //   • onUpdate() propaga el cambio al padre para que se vea en pantalla.
-  //   • El usuario aún debe presionar GUARDAR para persistir en BD.
+  // Load conversion metadata without rewriting the saved amount on opening a plan.
   useEffect(() => {
     if (allAlimentos.length === 0 || !ing.descripcion) return;
     // Guard: si ya sincronizamos este ingrediente, no volver a hacerlo para evitar
@@ -193,44 +185,16 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
       catalogSyncedFor.current = ing.descripcion;
 
       const baseEq = match.equivalentesBase && match.equivalentesBase > 0 ? match.equivalentesBase : 1;
-      if (smaePiezasPorEq === 0 && match.cantidadPorcion) {
+      if (smaePiezasPorEq === 0 && match.cantidadPorcion && match.unidadPorcion?.trim()) {
         setSmaePiezasPorEq(amountPerBaseEquivalent(match.cantidadPorcion, baseEq));
       }
       if (!smaeGrupoKey && match.grupo) setSmaeGrupoKey(match.grupo);
       if (match.unidadBase && match.unidadBase !== smaeUnidadBase) setSmaeUnidadBase(match.unidadBase);
+      if (match.unidadPorcion) setSmaeUnidadPorcion(normalizeSmaeUnit(match.unidadPorcion));
 
-      // Si el catálogo tiene un ancla (gramos por 1 eq) distinta al guardado en BD, el catálogo gana.
-      // OJO: el ancla real es pesoGramos ÷ equivalentesBase (igual que en handleSelect), NO pesoGramos
-      // a secas. Comparar/usar pesoGramos crudo aquí rompía los alimentos con equivalentesBase != 1
-      // (ej. 117g = 4 eq → ancla correcta 29.25g/eq se recalculaba con 117g/eq).
       const catalogAnchor = amountPerBaseEquivalent(match.pesoGramos, baseEq);
-      if (catalogAnchor > 0 && catalogAnchor !== smaeGrPorEq) {
-        const newAnchor = catalogAnchor;
-        setSmaeGrPorEq(newAnchor);
+      if (catalogAnchor > 0 && !ing.smaeGrPorEq) setSmaeGrPorEq(catalogAnchor);
 
-        // Mantener las Eq fijas y recalcular la cantidad con el nuevo ancla.
-        // Se usa ing.eqCantidad (valor guardado en BD) como fuente de verdad del Eq count.
-        // La unidad ancla es la de ESTE alimento (match.unidadBase), no un 'GR' fijo: si el
-        // catálogo usa ml, la unidad recalculada debe quedar en 'ML', no en 'GR'.
-        const matchAnchorUnit = unidadBaseToCode(match.unidadBase);
-        const storedEq = Number(ing.eqCantidad) || 0;
-        const ingUnidadUpper = (ing.unidad || matchAnchorUnit).toUpperCase();
-        // Etiqueta legacy: antes de este fix, la unidad ancla se guardaba siempre como
-        // 'GR' aunque el alimento tuviera otra unidad base. Si no tiene porción casera en
-        // 'gr', 'GR' aquí es un residuo del bug y se relabela a la unidad ancla real.
-        const staleGR = ingUnidadUpper === 'GR' && matchAnchorUnit !== 'GR' &&
-          (match.unidadPorcion || '').toUpperCase() !== 'GR';
-        if (storedEq > 0 && (staleGR || ingUnidadUpper === matchAnchorUnit)) {
-          const newGrams = parseFloat((storedEq * newAnchor).toFixed(1));
-          setCantidad(newGrams.toString());
-          setUnidad(matchAnchorUnit);
-          onUpdate({
-            smaeGrPorEq: newAnchor,
-            cantidad: newGrams,
-            unidad: matchAnchorUnit,
-          });
-        }
-      }
     }
   }, [allAlimentos, ing.descripcion]);
 
@@ -253,13 +217,10 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
 
     const propCant = ing.cantidad?.toString() || '';
     if (propCant !== cantidad) setCantidad(propCant);
-    if ((ing.unidad || 'GR').toUpperCase() !== unidad.toUpperCase()) setUnidad((ing.unidad || 'GR').toUpperCase());
+    if (normalizeSmaeUnit(ing.unidad || 'GR') !== unidad.toUpperCase()) setUnidad(normalizeSmaeUnit(ing.unidad || 'GR'));
 
-    let effectiveGrPorEq = ing.smaeGrPorEq || 0;
-    if (effectiveGrPorEq === 0 && Number(ing.cantidad) > 0 && Number(ing.eqCantidad) > 0) {
-      effectiveGrPorEq = parseFloat((Number(ing.cantidad) / Number(ing.eqCantidad)).toFixed(3));
-    }
-    if (effectiveGrPorEq !== smaeGrPorEq) setSmaeGrPorEq(effectiveGrPorEq);
+    const effectiveGrPorEq = ing.smaeGrPorEq || 0;
+    if (effectiveGrPorEq > 0 && effectiveGrPorEq !== smaeGrPorEq) setSmaeGrPorEq(effectiveGrPorEq);
 
     if (ing.descripcion !== query) {
       setQuery(ing.descripcion || '');
@@ -285,28 +246,25 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
     setShowDropdown(filtered.length > 0);
   }, [query, allAlimentos]);
 
-  // ─── Sistema de redondeo especial para EQUIVALENCIAS ────────────────────
-  // Regla: decimal ≤ 0.3 → entero hacia abajo  |  0.4 → 0.5  |  ≥ 0.5 y ≤ 0.6 → 0.5  |  > 0.6 → entero hacia arriba
-  // Resumen: solo puede resultar en entero o .5
-  const roundEq = (val: number): number => {
-    const base = Math.floor(val);
-    const dec = val - base;
-    if (dec <= 0.3) return base;            // baja al entero
-    if (dec <= 0.6) return base + 0.5;     // punto medio
-    return base + 1;                        // sube al entero
-  };
+  // Keep proportional equivalents to the same two decimal precision as quantities.
+  const roundEq = (val: number): number => Number(val.toFixed(2));
 
   // ─── Función núcleo: calcular eq a partir de gramos ───────────────────────
-  // Usa smaeGrPorEq. Redondea con roundEq para solo producir enteros o .5
+  // Usa la referencia por EQ y conserva centésimas.
   const grToEq = (gr: number, grxeq: number): number =>
     grxeq > 0 ? roundEq(gr / grxeq) : 0;
 
   // ─── Función inversa: calcular gramos a partir de eq ─────────────────────
   const eqToGr = (eq: number, grxeq: number): number =>
-    grxeq > 0 ? parseFloat((eq * grxeq).toFixed(1)) : 0;
+    grxeq > 0 ? parseFloat((eq * grxeq).toFixed(2)) : 0;
 
   // ─── Seleccionar alimento del catálogo ────────────────────────────────────
   const handleSelect = (alimento: SmaeAlimento) => {
+    const reference = amountPerBaseEquivalent(alimento.pesoGramos, alimento.equivalentesBase);
+    if (!(reference > 0) || !Number.isFinite(reference)) {
+      toast({ title: 'Referencia SMAE incompleta', description: 'Se conservó el ingrediente original. Revisa la cantidad de referencia del alimento en el catálogo SMAE.' });
+      return;
+    }
     setQuery(alimento.nombre);
     setShowDropdown(false);
 
@@ -317,8 +275,10 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
     const grupoColor = GRUPO_COLORS[grupoKey] || '#8a8a8a';
 
     // Porción por defecto: porción casera si existe, si no la unidad ancla del alimento
-    const baseCant = alimento.cantidadPorcion ?? alimento.pesoGramos;
-    const uFinal = alimento.cantidadPorcion ? (alimento.unidadPorcion || 'PZA') : unidadBaseToCode(alimento.unidadBase);
+    const hasHouseholdPortion = Number(alimento.cantidadPorcion) > 0 && Boolean(alimento.unidadPorcion?.trim()) &&
+      normalizeSmaeUnit(alimento.unidadPorcion) !== unidadBaseToCode(alimento.unidadBase);
+    const baseCant = hasHouseholdPortion ? Number(alimento.cantidadPorcion) : alimento.pesoGramos;
+    const uFinal = hasHouseholdPortion ? normalizeSmaeUnit(alimento.unidadPorcion) : unidadBaseToCode(alimento.unidadBase);
 
     // eq que aporta 1 porción del grupo base (editable en catálogo, default 1)
     let eqVal = baseEq;
@@ -337,9 +297,10 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
     const allEquivs = buildScaledCatalogEquivalences(eqLabel, baseEq, eqVal, eqsExtra);
 
     setSmaeGrPorEq(grPorEq);
-    setSmaePiezasPorEq(amountPerBaseEquivalent(alimento.cantidadPorcion, baseEq));
+    setSmaePiezasPorEq(hasHouseholdPortion ? amountPerBaseEquivalent(alimento.cantidadPorcion, baseEq) : 0);
     setSmaeGrupoKey(grupoKey);
     setSmaeUnidadBase(alimento.unidadBase || 'g');
+    setSmaeUnidadPorcion(normalizeSmaeUnit(alimento.unidadPorcion));
     setCantidad(finalCant.toString());
     setUnidad(uFinal);
     setEquivalencias(allEquivs);
@@ -369,40 +330,29 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
   // ─── Cambio en GRAMOS (o cualquier cantidad) → recalcular eq ─────────────
   // Prioridad: 1) ancla smaeGrPorEq en GR  2) ancla inferida  3) sin ancla
   const handleCantidadChange = (val: string) => {
-    const num = parseFloat(val);
+    const num = Number(val.trim().replace(',', '.'));
     setCantidad(val);
 
-    if (isNaN(num) || num <= 0) {
-      onUpdate({ cantidad: 0, unidad, smaeGrPorEq });
+    if (!Number.isFinite(num) || num < 0) {
+      toast({ title: 'Cantidad no válida', description: 'Introduce una cantidad mayor o igual a cero.' });
+      setCantidad(cantidad);
       return;
     }
 
     // Leer ancla actual
-    let activeAnchor = smaeGrPorEq;
-    let workingUnidad = unidad;
+    const activeAnchor = smaeGrPorEq;
+    const workingUnidad = unidad;
     const firstEqNum = parseFloat(equivalencias[0]?.cantidad?.toString() || '0');
-    const prevCantNum = parseFloat(cantidad);
 
-    // Inferir ancla solo si NO la tenemos y estamos en la unidad ancla (GR, ML, etc.)
-    if (activeAnchor === 0 && prevCantNum > 0 && firstEqNum > 0 && workingUnidad === anchorUnit) {
-      activeAnchor = parseFloat((prevCantNum / firstEqNum).toFixed(6));
-      setSmaeGrPorEq(activeAnchor);
+    const portionPerEq = workingUnidad === anchorUnit ? activeAnchor
+      : (workingUnidad === smaeUnidadPorcion ? smaePiezasPorEq : 0);
+    if (!(portionPerEq > 0)) {
+      toast({ title: 'Cantidad ajustada manualmente', description: 'No hay una conversión válida para esta unidad. Se conservaron las equivalencias; revisa la porción en el catálogo SMAE.' });
+      onUpdate({ cantidad: num, unidad });
+      return;
     }
 
-    // Heurística: si la unidad es casera (PZA/taza) pero el usuario tecleó una cantidad típica de la
-    // unidad ancla (>= 20 y >> piezas razonables), asumimos que tecleó en la ancla y auto-convertimos
-    // para evitar eq desbordados.
-    if (
-      activeAnchor > 0 &&
-      workingUnidad.toUpperCase().trim() !== anchorUnit &&
-      num >= 20 &&
-      (smaePiezasPorEq === 0 || num > smaePiezasPorEq * 10)
-    ) {
-      workingUnidad = anchorUnit;
-      setUnidad(anchorUnit);
-    }
-
-    if (activeAnchor > 0) {
+    if (portionPerEq > 0) {
       let eqVal: number;
 
       if (workingUnidad === anchorUnit) {
@@ -411,17 +361,15 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
       } else {
         // Unidad casera (PZA, taza…)
         // Preferimos el ancla fija del catálogo (smaePiezasPorEq) para que no se contamine
-        // tras cambios de unidad. Fallback: ratio cantidad/eq actual.
-        if (smaePiezasPorEq > 0) {
+        // tras cambios de unidad. No inferimos relaciones desde cantidades guardadas.
+        if (smaePiezasPorEq > 0 && workingUnidad === smaeUnidadPorcion) {
           eqVal = roundEq(num / smaePiezasPorEq);
-        } else if (prevCantNum > 0 && firstEqNum > 0) {
-          eqVal = roundEq((num * firstEqNum) / prevCantNum);
         } else {
           eqVal = firstEqNum; // fallback: no cambia eq
         }
       }
 
-      const scale = prevCantNum > 0 ? num / prevCantNum : 0;
+      const scale = firstEqNum > 0 ? eqVal / firstEqNum : 0;
       const newEquivs = equivalencias.map((e, i) => {
         if (i === 0) return { ...e, cantidad: eqVal };
         const oldVal = parseFloat(e.cantidad?.toString() || '0');
@@ -447,14 +395,23 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
   // ─── Cambio en EQ (primer grupo o cualquiera) ─────────────────────────────
   // Si idx === 0 y tiene ancla SMAE, el cambio regenera la cantidad con exactitud
   const handleEqChange = (idx: number, val: string) => {
-    const eqNum = parseFloat(val);
+    const eqNum = val.trim() ? Number(val.trim().replace(',', '.')) : NaN;
+    if (val.trim() && (!Number.isFinite(eqNum) || eqNum < 0)) {
+      toast({ title: 'Equivalencias no válidas', description: 'Introduce un valor mayor o igual a cero.' });
+      return;
+    }
     const oldEquivs = [...equivalencias];
     const oldEq0 = parseFloat(oldEquivs[0]?.cantidad?.toString() || '0');
-    const oldCant = parseFloat(cantidad);
+        if (idx === 0 && Number.isFinite(eqNum) && eqNum >= 0 &&
+      !((unidad === anchorUnit && smaeGrPorEq > 0) ||
+        (unidad === smaeUnidadPorcion && smaePiezasPorEq > 0))) {
+      toast({ title: 'No se puede convertir esta unidad', description: 'Se conservó la cantidad original. Revisa la relación de porción en el catálogo SMAE o ajusta la cantidad manualmente.' });
+      return;
+    }
 
     // Guardamos el valor raw mientras el usuario escribe; si es número lo almacenamos como tal
     // Si el cambio es en idx 0, escalamos también las equivalencias secundarias proporcionalmente
-    const scaleSecondary = idx === 0 && !isNaN(eqNum) && eqNum > 0 && oldEq0 > 0;
+    const scaleSecondary = idx === 0 && Number.isFinite(eqNum) && eqNum >= 0 && oldEq0 > 0;
     const newEquivs = oldEquivs.map((e, i) => {
       if (i === idx) return { ...e, cantidad: isNaN(eqNum) ? val : eqNum };
       if (scaleSecondary) {
@@ -466,23 +423,17 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
     setEquivalencias(newEquivs);
 
     // Leer ancla actual
-    let activeAnchor = smaeGrPorEq;
+    const activeAnchor = smaeGrPorEq;
 
-    // Inferir ancla SOLO si no la tenemos y tenemos suficiente info en la unidad ancla
-    if (activeAnchor === 0 && oldCant > 0 && oldEq0 > 0 && unidad === anchorUnit) {
-      activeAnchor = parseFloat((oldCant / oldEq0).toFixed(6));
-      setSmaeGrPorEq(activeAnchor);
-    }
-
-    let updates: Partial<Ingrediente> = {
+    const updates: Partial<Ingrediente> = {
       equivalencias: newEquivs,
-      eqCantidad: isNaN(eqNum) ? 0 : eqNum,
+      eqCantidad: Number(newEquivs[0]?.cantidad) || 0,
       eqGrupo: newEquivs[0].grupo,
       smaeGrPorEq: activeAnchor,
     };
 
     // Si es el primer grupo y el número es válido, recalculamos la cantidad
-    if (idx === 0 && !isNaN(eqNum) && eqNum > 0) {
+    if (idx === 0 && !isNaN(eqNum) && eqNum >= 0) {
       if (activeAnchor > 0) {
         if (unidad === anchorUnit) {
           // ✅ Canónico (GR/ML/etc.): ancla × eq = cantidad EXACTA (nunca deriva)
@@ -496,21 +447,13 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
           // sobre oldCant/oldEq0: si el usuario borró el campo antes de escribir el nuevo
           // valor (ej. Backspace y luego "3"), oldEq0 quedaría en 0 momentáneamente y
           // rompería el ratio — smaePiezasPorEq no se ve afectado por ese estado transitorio.
-          const piezasPorEq = smaePiezasPorEq > 0
-            ? smaePiezasPorEq
-            : (oldEq0 > 0 && oldCant > 0 ? oldCant / oldEq0 : 0);
+          const piezasPorEq = unidad === smaeUnidadPorcion ? smaePiezasPorEq : 0;
           if (piezasPorEq > 0) {
             const newCant = parseFloat((piezasPorEq * eqNum).toFixed(2));
             setCantidad(newCant.toString());
             updates.cantidad = newCant;
           }
         }
-      } else if (oldEq0 > 0 && oldCant > 0) {
-        // Sin ancla en absoluto: regla de tres simple
-        const scale = eqNum / oldEq0;
-        const newCant = parseFloat((oldCant * scale).toFixed(2));
-        setCantidad(newCant.toString());
-        updates.cantidad = newCant;
       }
     }
 
@@ -588,6 +531,7 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
 
   // ─── Quick Save al catálogo SMAE ──────────────────────────────────────────
   const handleSaveQuickFood = async () => {
+    if (readonlyCatalog) return;
     if (!quickGramos || parseFloat(quickGramos) <= 0) return;
     setIsSavingQuick(true);
     try {
@@ -707,7 +651,7 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
                     <div>
                       <p className="text-[13px] font-bold text-white m-0">{a.nombre}</p>
                       <p className="text-[11px] font-medium text-[#b0b0b0] m-0">
-                        {amountPerBaseEquivalent(a.pesoGramos, a.equivalentesBase)} {a.unidadBase || 'g'} = 1 eq · {a.pesoGramos} {a.unidadBase || 'g'} = {a.equivalentesBase || 1} eq por porción
+                        {Number(amountPerBaseEquivalent(a.pesoGramos, a.equivalentesBase).toFixed(2))} {a.unidadBase || 'g'} = 1 eq · {a.pesoGramos} {a.unidadBase || 'g'} = {a.equivalentesBase || 1} eq por porción
                       </p>
                     </div>
                     <span className="text-[10px] font-bold px-1.5 py-0.5 rounded whitespace-nowrap flex-shrink-0"
@@ -794,40 +738,36 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
         </div>
         <div>
           <label className="text-[10px] text-text-muted uppercase tracking-wider block mb-1">Unidad</label>
-          <input
-            value={unidad}
-            onChange={(e) => {
-              const newUnidad = e.target.value;
-              const newUnidadUpper = newUnidad.toUpperCase().trim();
-              const oldUnidadUpper = unidad.toUpperCase().trim();
-              setUnidad(newUnidad);
-
-              if (smaeGrPorEq > 0) {
-                const currentEq = equivalencias[0] ? parseFloat(equivalencias[0].cantidad.toString()) : 0;
-
-                if (currentEq > 0) {
-                  // Ancla (GR/ML/etc.) → preserve eq, convert cantidad a la unidad ancla
-                  if (newUnidadUpper === anchorUnit && oldUnidadUpper !== anchorUnit) {
-                    const newCant = eqToGr(currentEq, smaeGrPorEq);
-                    setCantidad(newCant.toString());
-                    onUpdate({ unidad: newUnidad, cantidad: newCant });
-                    return;
-                  }
-                  // Ancla → otra unidad (PZA/taza/etc): convert via piezasPorEq si lo tenemos
-                  if (oldUnidadUpper === anchorUnit && newUnidadUpper !== anchorUnit && smaePiezasPorEq > 0) {
-                    const newCant = parseFloat((currentEq * smaePiezasPorEq).toFixed(2));
-                    setCantidad(newCant.toString());
-                    onUpdate({ unidad: newUnidad, cantidad: newCant });
-                    return;
-                  }
+          {hasSmae ? (
+            <select
+              value={unidad.toUpperCase().trim()}
+              onChange={(e) => {
+                const nextUnit = e.target.value;
+                const currentEq = Number(equivalencias[0]?.cantidad) || 0;
+                const amountPerEq = nextUnit === anchorUnit ? smaeGrPorEq : (nextUnit === smaeUnidadPorcion ? smaePiezasPorEq : 0);
+                setUnidad(nextUnit);
+                if (currentEq > 0 && amountPerEq > 0) {
+                  const nextAmount = parseFloat((currentEq * amountPerEq).toFixed(2));
+                  setCantidad(nextAmount.toString());
+                  onUpdate({ unidad: nextUnit, cantidad: nextAmount });
+                } else {
+                  onUpdate({ unidad: nextUnit });
                 }
-              }
-
-              onUpdate({ unidad: newUnidad });
-            }}
-            className="w-full bg-bg-base px-2 py-2 rounded-[6px] text-[13px] font-bold text-white text-center outline-none border border-border-subtle focus:border-[#444] lowercase"
-            placeholder="gr"
-          />
+              }}
+              className="w-full bg-bg-base px-2 py-2 rounded-[6px] text-[13px] font-bold text-white text-center outline-none border border-border-subtle focus:border-[#444]"
+            >
+              {[...new Set([anchorUnit, ...(smaePiezasPorEq > 0 && smaeUnidadPorcion ? [smaeUnidadPorcion] : []), unidad.toUpperCase().trim()])].map(code => (
+                <option key={code} value={code}>{code}</option>
+              ))}
+            </select>
+          ) : (
+            <input
+              value={unidad}
+              onChange={(e) => { const code = normalizeSmaeUnit(e.target.value); setUnidad(code); onUpdate({ unidad: code }); }}
+              className="w-full bg-bg-base px-2 py-2 rounded-[6px] text-[13px] font-bold text-white text-center outline-none border border-border-subtle focus:border-[#444] lowercase"
+              placeholder="gr"
+            />
+          )}
         </div>
       </div>
 
@@ -835,7 +775,7 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
       <div className="space-y-1.5">
         <div className="flex items-center justify-between mb-1">
           <label className="text-[10px] uppercase tracking-wider text-text-muted">
-            Equivalencias{hasSmae ? ' (auto ↔ gr)' : ' (manual)'}
+            Equivalencias{hasSmae ? ` (auto ↔ ${anchorUnit.toLowerCase()})` : ' (manual)'}
           </label>
           <button type="button" onClick={addEquiv}
             className="flex items-center gap-1 text-[10px] text-[#90c2ff] hover:text-white transition-colors px-1.5 py-0.5 rounded hover:bg-[#1a2a3a]">
@@ -914,7 +854,7 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
         {/* Chip de ancla SMAE — muestra cuántos g = 1 eq */}
         {hasSmae && (
           <p className="text-[10px] text-[#555] italic">
-            📐 {smaeGrPorEq}{smaeUnidadBase} = 1 eq · cambia GR o EQ y el otro se ajusta automático
+            📐 {Number(smaeGrPorEq.toFixed(2))} {smaeUnidadBase} = 1 eq · cambia cantidad o EQ y el otro se ajusta automático
           </p>
         )}
 

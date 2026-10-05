@@ -140,7 +140,9 @@ const ModalAlimento = ({
   const handleSubmit = async () => {
     if (!form.nombre.trim()) return;
     if (!form.pesoGramos || form.pesoGramos <= 0) return;
+    if (!form.equivalentesBase || form.equivalentesBase <= 0) return;
     if (!form.unidadBase.trim()) return;
+    if (Number(form.cantidadPorcion) > 0 && !form.unidadPorcion?.trim()) return;
     setSaving(true);
     try {
       const validEquivs = extraEquivs.filter(e => e.grupo.trim());
@@ -213,7 +215,7 @@ const ModalAlimento = ({
 
           {/* Cantidad ancla por 1 equivalente */}
           <div className="space-y-1.5">
-            <label className="text-[12px] font-medium text-text-secondary m-0">Cantidad por 1 equivalente *</label>
+            <label className="text-[12px] font-medium text-text-secondary m-0">Cantidad de referencia *</label>
             <div className="flex gap-2">
               <input
                 type="number"
@@ -338,7 +340,7 @@ const ModalAlimento = ({
                 className="bg-bg-elevated rounded-[8px] px-3 py-2.5 text-[14px] text-text-primary border border-border-subtle focus:border-[#444] outline-none"
               />
             </div>
-            <p className="text-[11px] text-text-muted m-0">Ejemplo: cantidad=1 · unidad=pieza · descripción=pieza mediana</p>
+            <p className="text-[11px] text-text-muted m-0">Si agregas una cantidad casera, indica también su unidad. Ejemplo: 1 · pieza · pieza mediana.</p>
           </div>
 
           {/* Notas */}
@@ -376,7 +378,7 @@ const ModalAlimento = ({
             </button>
             <button
               onClick={handleSubmit}
-              disabled={saving || !form.nombre.trim() || !form.pesoGramos || !form.unidadBase.trim()}
+              disabled={saving || !form.nombre.trim() || !form.pesoGramos || Number(form.equivalentesBase) <= 0 || !form.unidadBase.trim() || (Number(form.cantidadPorcion) > 0 && !form.unidadPorcion?.trim())}
               className="flex items-center gap-2 px-5 py-2 bg-brand-primary text-bg-base rounded-[8px] text-[13px] font-bold hover:bg-[#e0e0e0] transition-all disabled:opacity-50"
             >
               {saving ? <div className="w-4 h-4 border-2 border-white/20 border-t-white dark:border-black/20 dark:border-t-black rounded-full animate-spin" /> : <Check className="w-4 h-4" />}

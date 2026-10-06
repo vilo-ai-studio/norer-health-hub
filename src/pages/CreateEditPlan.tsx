@@ -53,6 +53,7 @@ import {
 import { PacienteResumenSidebar } from '@/components/PacienteResumenSidebar';
 import { Phase4Delivery } from './Phase4Delivery';
 import { beginNativeDrag } from '@/lib/nativeDrag';
+import { scaleIngredientsToBarrido } from '@/lib/platilloScaling';
 
 const defaultTiempos = ['Pre-entreno', 'Desayuno', 'Colación', 'Almuerzo', 'Colación', 'Cena'];
 
@@ -78,16 +79,6 @@ const newClientIngredientId = () =>
   typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `ingredient-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-
-/** Redondeo inteligente para porciones prácticas:
- *  - Parte decimal >= 0.5 → redondea arriba
- *  - Parte decimal < 0.5  → redondea abajo
- *  Nunca devuelve < 0. Si el valor es 0, devuelve 0.
- */
-const smartRound = (val: number): number => {
-  if (val <= 0) return 0;
-  return Math.round(val); // Math.round ya hace >=0.5 up, <0.5 down
-};
 
 const SortableIngredientRow = ({
   id,
@@ -725,53 +716,10 @@ export const CreateEditPlanForm = ({
 
         return {
           ...tiempo,
-          ingredientes: tiempo.ingredientes.map((ing: any) => {
-            // Determinar el grupo principal del ingrediente (legacy eqGrupo o primer item de equivalencias[])
-            const mainGrupo = ing.eqGrupo ||
-              (Array.isArray(ing.equivalencias) && ing.equivalencias.length > 0
-                ? String(ing.equivalencias[0]?.grupo || '')
-                : '');
-
-            if (ing.platillo && mainGrupo) {
-              const bKey = groupToBarridoKey(normalizeGroup(mainGrupo));
-              const assignedEq = Number(assignedBarrido.distribucion[barridoTiempoKey]?.[bKey]) || 0;
-
-              // Sin presupuesto (0) para este grupo en este tiempo = sin objetivo real, no "objetivo
-              // cero". No hay número al cual escalar, así que no tocamos el ingrediente — ni lo
-              // vaciamos ni lo multiplicamos. Se queda como venía del platillo; el contador lo marca
-              // aparte como excedente/no presupuestado.
-              if (assignedEq <= 0) {
-                return ing;
-              }
-
-              // Ancla: si tenemos smaeGrPorEq (gramos por 1 eq del catálogo) la usamos directamente.
-              // Solo aplica si la cantidad está en gramos: el ancla siempre es g/eq, así que en
-              // unidades caseras (taza, pza…) desalinearía cantidad y unidad (ej. "300 taza").
-              const unidadEsGramos = !ing.unidad || String(ing.unidad).toUpperCase().trim() === 'GR';
-              const baseGrPorEq = unidadEsGramos && Number(ing.smaeGrPorEq) > 0
-                ? Number(ing.smaeGrPorEq)
-                : (unidadEsGramos && Number(ing.eqCantidad) > 0 ? Number(ing.cantidad) / Number(ing.eqCantidad) : 0);
-
-              if (baseGrPorEq > 0) {
-                const newCant = smartRound(baseGrPorEq * assignedEq);
-                // Escalar equivalencias proporcionalmente. Si la cantidad original es 0/inválida no
-                // hay proporción real que preservar — dejamos las secundarias sin tocar en vez de
-                // dividir entre cero (eso producía Infinity/NaN y corrompía la BD al guardar).
-                const origCant = Number(ing.cantidad) || 0;
-                const factor = origCant > 0 ? newCant / origCant : 1;
-                const newEquivs = Array.isArray(ing.equivalencias) && ing.equivalencias.length > 0
-                  ? ing.equivalencias.map((e: any) => ({ ...e, cantidad: smartRound(Number(e.cantidad) * factor) }))
-                  : (mainGrupo ? [{ cantidad: assignedEq, grupo: mainGrupo }] : []);
-                return { ...ing, cantidad: newCant, eqCantidad: assignedEq, equivalencias: newEquivs };
-              }
-
-              const baseEq = Number(ing.eqCantidad) || 1;
-              const rawCant = (Number(ing.cantidad) / baseEq) * Number(assignedEq);
-              const newCant = smartRound(rawCant);
-              return { ...ing, cantidad: newCant, eqCantidad: assignedEq };
-            }
-            return ing;
-          })
+          ingredientes: scaleIngredientsToBarrido(
+            tiempo.ingredientes,
+            assignedBarrido.distribucion[barridoTiempoKey] || {},
+          ),
         };
       });
 
@@ -2120,83 +2068,16 @@ export const CreateEditPlanForm = ({
                                             : undefined;
                                           const distTiempo = d && barridoTiempo ? d[barridoTiempo.id] : null;
 
-                                          const ings = p.ingredientes.map((i: any, idx: number) => {
-                                            let scaledCant = Number(i.cantidad);
-                                            let scaledEq = Number(i.eqCantidad);
-
-                                            // Parsear equivalencias si vienen como string
-                                            let eqArray: any[] = [];
-                                            if (Array.isArray(i.equivalencias)) {
-                                              eqArray = i.equivalencias;
-                                            } else if (typeof i.equivalencias === 'string' && i.equivalencias.trim() !== '') {
-                                              try { eqArray = JSON.parse(i.equivalencias); } catch (e) { }
-                                            }
-
-                                            // Sanitizar equivalencias: eliminar entradas fantasma con grupo vacío
-                                            const rawEquivs = eqArray.filter(
-                                              (e: any) => e.grupo && String(e.grupo).trim() !== '' && e.cantidad !== '' && e.cantidad != null
-                                            );
-
-                                            // Grupo principal: preferir eqGrupo (legacy) o primer item del array de equivalencias
-                                            const mainGrupo = i.eqGrupo ||
-                                              (rawEquivs.length > 0 ? String(rawEquivs[0]?.grupo || '') : '');
-
-                                            if (mainGrupo && distTiempo) {
-                                              // Traduce el label al key canónico del barrido usando la función centralizada
-                                              const barridoKey = groupToBarridoKey(normalizeGroup(mainGrupo));
-                                              const assigned = Number(distTiempo[barridoKey]);
-
-                                              if (assigned > 0) {
-                                                // Ancla: usamos smaeGrPorEq si existe, si no derivamos de cantidad/eqCantidad.
-                                                // El ancla siempre está en gramos por 1 eq — solo aplica si la unidad
-                                                // del ingrediente es GR. En cualquier otra unidad (pieza, taza, paquete,
-                                                // lata...) usarla desalinearía cantidad↔unidad (ej. "300 taza"), así
-                                                // que ahí se cae al fallback proporcional (regla de tres, ya siempre
-                                                // redondeado a entero por smartRound).
-                                                const unidadEsGramos = !i.unidad || String(i.unidad).toUpperCase().trim() === 'GR';
-                                                const smaeAnchor = unidadEsGramos ? Number(i.smaeGrPorEq) : 0;
-                                                const baseGrPorEq = smaeAnchor > 0
-                                                  ? smaeAnchor
-                                                  : (unidadEsGramos && Number(i.eqCantidad) > 0 ? Number(i.cantidad) / Number(i.eqCantidad) : 0);
-
-                                                if (baseGrPorEq > 0) {
-                                                  // Escalar: gramos = ancla × eq asignadas por barrido
-                                                  scaledCant = smartRound(baseGrPorEq * assigned);
-                                                  scaledEq = assigned;
-                                                } else {
-                                                  // Fallback si no hay ancla: escalar por proporción
-                                                  const baseEq = Number(i.eqCantidad) || 1;
-                                                  scaledCant = smartRound((Number(i.cantidad) / baseEq) * assigned);
-                                                  scaledEq = assigned;
-                                                }
-                                              }
-                                            }
-
-                                            // Factor de escala para propagar a equivalencias adicionales
-                                            const origCant = Number(i.cantidad) || 0;
-                                            const scaleFactor = (scaledCant !== origCant && origCant > 0) ? (scaledCant / origCant) : 1;
-
-                                            const cleanEquivencias = rawEquivs.length > 0
-                                              ? rawEquivs.map((e: any) => ({
-                                                grupo: e.grupo,
-                                                // Escalar cada grupo proporcionalmente al mismo factor que la cantidad física
-                                                cantidad: scaleFactor !== 1 ? smartRound(Number(e.cantidad) * scaleFactor) : Number(e.cantidad),
-                                              }))
-                                              : (i.eqGrupo ? [{ cantidad: scaledEq, grupo: i.eqGrupo }] : []);
-
-                                            return {
-                                              ...i,
-                                              // El id de la biblioteca no pertenece al ingrediente del plan. Una clave
-                                              // nueva evita duplicados de React al importar el mismo platillo más de una vez.
-                                              id: newClientIngredientId(),
-                                              cantidad: scaledCant,
-                                              eqCantidad: scaledEq,
-                                              smaeGrPorEq: Number(i.smaeGrPorEq) || 0,
-                                              equivalencias: cleanEquivencias,
-                                              platillo: p.nombre,
-                                              orden: (tiempo.ingredientes.length || 0) + idx + 1
-                                            };
-                                          });
+                                          const ings = scaleIngredientsToBarrido(
+                                            p.ingredientes.map(ingredient => ({ ...ingredient, platillo: p.nombre })),
+                                            distTiempo || {},
+                                            tiempo.ingredientes,
+                                          ).map((ingredient, idx) => ({
+                                            ...ingredient,
+                                            id: newClientIngredientId(),
+                                            platillo: p.nombre,
+                                            orden: tiempo.ingredientes.length + idx + 1,
+                                          }));
 
                                           updateTiempo(mi, ti, (t) => ({ ...t, ingredientes: [...t.ingredientes, ...ings] }));
                                           setShowPlatilloSelector(null);

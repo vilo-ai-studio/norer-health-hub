@@ -119,6 +119,19 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
   // que antes se usaba en toda la lógica de auto-conversión gramos↔eq.
   const anchorUnit = unidadBaseToCode(smaeUnidadBase);
 
+  // A saved portion is an explicit relation in its own unit, even without a catalog match.
+  const savedPortion = useRef({
+    description: ing.descripcion,
+    unit: normalizeSmaeUnit(ing.unidad || 'GR'),
+    perEq: Number(ing.equivalencias?.[0]?.cantidad ?? ing.eqCantidad) > 0
+      ? amountPerBaseEquivalent(ing.cantidad, ing.equivalencias?.[0]?.cantidad ?? ing.eqCantidad) : 0,
+  });
+  const portionPerEquivalent = () =>
+    unidad === anchorUnit && smaeGrPorEq > 0 ? smaeGrPorEq
+      : unidad === smaeUnidadPorcion && smaePiezasPorEq > 0 ? smaePiezasPorEq
+        : catalogSyncedFor.current !== ing.descripcion && ing.descripcion === savedPortion.current.description && unidad === savedPortion.current.unit
+          ? savedPortion.current.perEq : 0;
+
   // ─── Multi-equivalencias ───────────────────────────────────────────────────
   const initEquivs = (): EquivalenciaItem[] => {
     // Filtramos equivalencias vacías (sin grupo) que se pudieron haber guardado
@@ -249,11 +262,6 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
   // Keep proportional equivalents to the same two decimal precision as quantities.
   const roundEq = (val: number): number => Number(val.toFixed(2));
 
-  // ─── Función núcleo: calcular eq a partir de gramos ───────────────────────
-  // Usa la referencia por EQ y conserva centésimas.
-  const grToEq = (gr: number, grxeq: number): number =>
-    grxeq > 0 ? roundEq(gr / grxeq) : 0;
-
   // ─── Función inversa: calcular gramos a partir de eq ─────────────────────
   const eqToGr = (eq: number, grxeq: number): number =>
     grxeq > 0 ? parseFloat((eq * grxeq).toFixed(2)) : 0;
@@ -344,8 +352,7 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
     const workingUnidad = unidad;
     const firstEqNum = parseFloat(equivalencias[0]?.cantidad?.toString() || '0');
 
-    const portionPerEq = workingUnidad === anchorUnit ? activeAnchor
-      : (workingUnidad === smaeUnidadPorcion ? smaePiezasPorEq : 0);
+    const portionPerEq = portionPerEquivalent();
     if (!(portionPerEq > 0)) {
       toast({ title: 'Cantidad ajustada manualmente', description: 'No hay una conversión válida para esta unidad. Se conservaron las equivalencias; revisa la porción en el catálogo SMAE.' });
       onUpdate({ cantidad: num, unidad });
@@ -353,27 +360,13 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
     }
 
     if (portionPerEq > 0) {
-      let eqVal: number;
-
-      if (workingUnidad === anchorUnit) {
-        // Canónico: gramos ÷ ancla = eq  (siempre exacto)
-        eqVal = grToEq(num, activeAnchor);
-      } else {
-        // Unidad casera (PZA, taza…)
-        // Preferimos el ancla fija del catálogo (smaePiezasPorEq) para que no se contamine
-        // tras cambios de unidad. No inferimos relaciones desde cantidades guardadas.
-        if (smaePiezasPorEq > 0 && workingUnidad === smaeUnidadPorcion) {
-          eqVal = roundEq(num / smaePiezasPorEq);
-        } else {
-          eqVal = firstEqNum; // fallback: no cambia eq
-        }
-      }
+      const eqVal = roundEq(num / portionPerEq);
 
       const scale = firstEqNum > 0 ? eqVal / firstEqNum : 0;
       const newEquivs = equivalencias.map((e, i) => {
         if (i === 0) return { ...e, cantidad: eqVal };
         const oldVal = parseFloat(e.cantidad?.toString() || '0');
-        if (oldVal <= 0 || scale <= 0) return e;
+        if (oldVal <= 0 || firstEqNum <= 0) return e;
         return { ...e, cantidad: roundEq(oldVal * scale) };
       });
       setEquivalencias(newEquivs);
@@ -402,9 +395,8 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
     }
     const oldEquivs = [...equivalencias];
     const oldEq0 = parseFloat(oldEquivs[0]?.cantidad?.toString() || '0');
-        if (idx === 0 && Number.isFinite(eqNum) && eqNum >= 0 &&
-      !((unidad === anchorUnit && smaeGrPorEq > 0) ||
-        (unidad === smaeUnidadPorcion && smaePiezasPorEq > 0))) {
+    if (idx === 0 && Number.isFinite(eqNum) && eqNum >= 0 &&
+      !(portionPerEquivalent() > 0)) {
       toast({ title: 'No se puede convertir esta unidad', description: 'Se conservó la cantidad original. Revisa la relación de porción en el catálogo SMAE o ajusta la cantidad manualmente.' });
       return;
     }
@@ -434,27 +426,9 @@ export const SmaeIngredientePicker = ({ ingrediente: ing, index, gapByGroup, onU
 
     // Si es el primer grupo y el número es válido, recalculamos la cantidad
     if (idx === 0 && !isNaN(eqNum) && eqNum >= 0) {
-      if (activeAnchor > 0) {
-        if (unidad === anchorUnit) {
-          // ✅ Canónico (GR/ML/etc.): ancla × eq = cantidad EXACTA (nunca deriva)
-          const newGr = eqToGr(eqNum, activeAnchor);
-          setCantidad(newGr.toString());
-          updates.cantidad = newGr;
-          updates.unidad = anchorUnit;
-        } else {
-          // Unidad casera: rescalamos proporcionalmente (piezas_por_eq × eqNum).
-          // Preferimos smaePiezasPorEq (ancla estable del catálogo, ej. "0.5 taza = 1 eq")
-          // sobre oldCant/oldEq0: si el usuario borró el campo antes de escribir el nuevo
-          // valor (ej. Backspace y luego "3"), oldEq0 quedaría en 0 momentáneamente y
-          // rompería el ratio — smaePiezasPorEq no se ve afectado por ese estado transitorio.
-          const piezasPorEq = unidad === smaeUnidadPorcion ? smaePiezasPorEq : 0;
-          if (piezasPorEq > 0) {
-            const newCant = parseFloat((piezasPorEq * eqNum).toFixed(2));
-            setCantidad(newCant.toString());
-            updates.cantidad = newCant;
-          }
-        }
-      }
+      const newAmount = eqToGr(eqNum, portionPerEquivalent());
+      setCantidad(newAmount.toString());
+      updates.cantidad = newAmount;
     }
 
     onUpdate(updates);

@@ -108,3 +108,19 @@ describe('unidades base y proporciones del catálogo', () => {
     expect(screen.getByRole('combobox')).toHaveValue(unit);
   });
 });
+
+describe('platillo importado sin coincidencia en catálogo', () => {
+  beforeEach(() => {
+    vi.clearAllMocks(); invalidateSmaeCache();
+    vi.mocked(api.get).mockResolvedValue({ data: { data: [] } });
+  });
+  it('permite editar 5 → 3 EQ y 90 → 120 gramos desde la porción guardada', async () => {
+    render(<ControlledPicker initial={{ descripcion: 'Salmón de prueba', cantidad: 150, unidad: 'gr', eqCantidad: 5, equivalencias: [{ grupo: 'AOA Moderado', cantidad: 5 }] }} />);
+    await waitFor(() => expect(api.get).toHaveBeenCalled());
+    fireEvent.change(screen.getAllByPlaceholderText('0')[1], { target: { value: '3' } });
+    expect(screen.getAllByPlaceholderText('0')[0]).toHaveValue('90');
+    fireEvent.change(screen.getAllByPlaceholderText('0')[0], { target: { value: '120' } });
+    expect(screen.getAllByPlaceholderText('0')[1]).toHaveValue('4');
+    expect(api.put).not.toHaveBeenCalled();
+  });
+});

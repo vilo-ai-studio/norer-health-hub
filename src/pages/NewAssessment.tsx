@@ -1125,7 +1125,8 @@ const NewAssessment = () => {
           ))}
         </div>
 
-        <div className="w-full flex-1 flex flex-col overflow-y-auto custom-scrollbar">
+        {/* En el menú, la cabecera debe seguir el scroll principal de la consulta. */}
+        <div className={`w-full flex-1 flex flex-col ${step === 3 ? 'overflow-visible' : 'overflow-y-auto custom-scrollbar'}`}>
           {/* FASE 1: MÉTRICAS Y TEMARIO */}
           {step === 1 && (
             <div className="flex flex-col flex-1 min-h-0 animate-slide-up gap-3">

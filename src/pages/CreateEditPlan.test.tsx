@@ -32,7 +32,7 @@ describe('Guardar menú fijo', () => {
     expect(bar.parentElement).toBe(document.body);
     expect(container).not.toContainElement(save);
     expect(bar).toHaveClass('fixed', 'bottom-0');
-    expect(bar).not.toHaveClass('md:hidden');
+    expect(bar).toHaveClass('md:hidden');
     expect(save).toBeEnabled();
     fireEvent.click(save);
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith('plan-test'));

@@ -117,10 +117,11 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
     setMeta({ ...meta, [key]: value });
   };
 
-  const handleSaveMeta = async () => {
+  const handleSaveMeta = async (notify = false) => {
     setSaving(true);
     try {
       await api.put(`/api/planes/${planId}/pdf-meta`, meta);
+      if (notify) toast({ title: 'Ajustes del PDF guardados', description: 'Se conservarán al volver a abrir este menú.' });
       return true;
     } catch (e) {
       toast({ title: 'Error al asegurar la configuración', variant: 'destructive' });
@@ -235,6 +236,9 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
         </div>
 
         <div className="space-y-3 pt-4 border-t border-[#1a1a1a]">
+          <button onClick={() => handleSaveMeta(true)} disabled={saving} className="w-full bg-brand-primary text-black font-semibold rounded-[12px] py-3.5 px-4 text-[14px] transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+            <Check className="w-5 h-5" /> {saving ? 'Guardando ajustes...' : 'Guardar ajustes'}
+          </button>
           <button onClick={handleDownload} disabled={saving} className="w-full bg-[#111] border border-[#333] hover:bg-[#1a1a1a] text-white font-semibold rounded-[12px] py-3.5 px-4 text-[14px] transition-all flex items-center justify-center gap-2">
             <Download className="w-5 h-5" /> Descargar Oficial PDF
           </button>

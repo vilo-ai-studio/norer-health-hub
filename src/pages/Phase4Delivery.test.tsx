@@ -74,6 +74,29 @@ describe('Phase4Delivery en el detalle del plan', () => {
     expect(api.get).not.toHaveBeenCalledWith('/api/planes/plan-1/pdf', expect.anything());
   });
 
+  it('guarda el tamaño sin descargar ni enviar y lo recupera al reabrir', async () => {
+    let savedMeta = {};
+    const previousGet = vi.mocked(api.get).getMockImplementation()!;
+    vi.mocked(api.put).mockImplementation(async (_url, meta) => {
+      savedMeta = meta as Record<string, unknown>;
+      return { data: {} };
+    });
+    vi.mocked(api.get).mockImplementation(async (url, ...args) => {
+      if (url === '/api/planes/plan-1') return { data: { data: { menus: [], pdfCustomMeta: savedMeta } } } as never;
+      return previousGet(url, ...args);
+    });
+    const props = { pacienteId: 'paciente-1', planId: 'plan-1', onFinish: vi.fn() };
+    const view = render(<Phase4Delivery {...props} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Letra grande' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Guardar ajustes' }));
+    await waitFor(() => expect(savedMeta).toEqual(expect.objectContaining({ menuFontSize: 13.5 })));
+    expect(api.get).not.toHaveBeenCalledWith('/api/planes/plan-1/pdf', expect.anything());
+    expect(api.post).not.toHaveBeenCalledWith('/api/planes/plan-1/enviar', expect.anything());
+    view.unmount();
+    render(<Phase4Delivery {...props} />);
+    expect(await screen.findByRole('button', { name: 'Letra grande' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('guarda el tamaño elegido antes de confirmar el envío', async () => {
     render(<Phase4Delivery pacienteId="paciente-1" planId="plan-1" onFinish={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Letra grande' }));

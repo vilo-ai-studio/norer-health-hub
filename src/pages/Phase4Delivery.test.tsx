@@ -74,7 +74,7 @@ describe('Phase4Delivery en el detalle del plan', () => {
     expect(api.get).not.toHaveBeenCalledWith('/api/planes/plan-1/pdf', expect.anything());
   });
 
-  it('guarda el tamaño sin descargar ni enviar y lo recupera al reabrir', async () => {
+  it('guarda automáticamente el tamaño sin descargar ni enviar y lo recupera al reabrir', async () => {
     let savedMeta = {};
     const previousGet = vi.mocked(api.get).getMockImplementation()!;
     vi.mocked(api.put).mockImplementation(async (_url, meta) => {
@@ -88,8 +88,9 @@ describe('Phase4Delivery en el detalle del plan', () => {
     const props = { pacienteId: 'paciente-1', planId: 'plan-1', onFinish: vi.fn() };
     const view = render(<Phase4Delivery {...props} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Letra grande' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Guardar ajustes' }));
     await waitFor(() => expect(savedMeta).toEqual(expect.objectContaining({ menuFontSize: 13.5 })));
+    expect(await screen.findByText('Guardado')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Guardar ajustes' })).not.toBeInTheDocument();
     expect(api.get).not.toHaveBeenCalledWith('/api/planes/plan-1/pdf', expect.anything());
     expect(api.post).not.toHaveBeenCalledWith('/api/planes/plan-1/enviar', expect.anything());
     view.unmount();
@@ -97,9 +98,34 @@ describe('Phase4Delivery en el detalle del plan', () => {
     expect(await screen.findByRole('button', { name: 'Letra grande' })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('avisa si falla el guardado automático y permite reintentar', async () => {
+    vi.mocked(api.put).mockRejectedValueOnce(new Error('Sin conexión'));
+    render(<Phase4Delivery pacienteId="paciente-1" planId="plan-1" onFinish={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Mediana' }));
+    expect(await screen.findByText('No se pudieron guardar los ajustes.')).toBeInTheDocument();
+    expect(screen.queryByText('Guardado')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Reintentar guardado' }));
+    expect(await screen.findByText('Guardado')).toBeInTheDocument();
+    expect(api.put).toHaveBeenLastCalledWith('/api/planes/plan-1/pdf-meta', expect.objectContaining({ menuFontSize: 12 }));
+  });
+
+  it('espera a que termine un guardado antes de permitir otro cambio y guarda también las hojas', async () => {
+    let finishSave!: (value: unknown) => void;
+    vi.mocked(api.put).mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
+    render(<Phase4Delivery pacienteId="paciente-1" planId="plan-1" onFinish={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Mediana' }));
+    expect(screen.getByText('Guardando…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Letra grande' })).toBeDisabled();
+    finishSave({ data: {} });
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Letra grande' })).not.toBeDisabled());
+    fireEvent.click(screen.getByRole('button', { name: '1. Historial y Antropometría' }));
+    await waitFor(() => expect(api.put).toHaveBeenLastCalledWith('/api/planes/plan-1/pdf-meta', expect.objectContaining({ menuFontSize: 12, showPageHistorial: false })));
+  });
+
   it('guarda el tamaño elegido antes de confirmar el envío', async () => {
     render(<Phase4Delivery pacienteId="paciente-1" planId="plan-1" onFinish={vi.fn()} />);
     fireEvent.click(await screen.findByRole('button', { name: 'Letra grande' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Enviar y Finalizar' })).not.toBeDisabled());
     fireEvent.click(screen.getByRole('button', { name: 'Enviar y Finalizar' }));
     fireEvent.click(screen.getByRole('button', { name: 'Confirmar envío' }));
     await waitFor(() => expect(api.post).toHaveBeenCalledWith('/api/planes/plan-1/enviar', expect.anything()));

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { FileText, Send, Check, Download } from 'lucide-react';
+import { FileText, Send, Download } from 'lucide-react';
 import { format } from 'date-fns';
 import api from '@/lib/api';
 import { useToast } from '@/hooks/use-toast';
@@ -34,6 +34,7 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [pacienteNombre, setPacienteNombre] = useState('Paciente');
   const [pacienteContacto, setPacienteContacto] = useState({ email: '', phone: '' });
@@ -108,22 +109,27 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
     if (!equivalencePdfOptionsEnabled && (key === 'soloEquivalencias' || key === 'showDistribucionPorciones')) return;
     const newMeta = togglePdfMetaFlag(meta, key);
     setMeta(newMeta);
+    void handleSaveMeta(newMeta);
     
     // Guardar opciones booleanas en preferencias
     const prefsToSave = getGlobalPdfPreferences(newMeta);
     localStorage.setItem('norder_pdfCustomMetaPrefs', JSON.stringify(prefsToSave));
   };
   const handleTextChange = (key: string, value: string) => {
-    setMeta({ ...meta, [key]: value });
+    const newMeta = { ...meta, [key]: value };
+    setMeta(newMeta);
+    void handleSaveMeta(newMeta);
   };
 
-  const handleSaveMeta = async (notify = false) => {
+  const handleSaveMeta = async (metaToSave = meta) => {
     setSaving(true);
+    setSaveStatus('saving');
     try {
-      await api.put(`/api/planes/${planId}/pdf-meta`, meta);
-      if (notify) toast({ title: 'Ajustes del PDF guardados', description: 'Se conservarán al volver a abrir este menú.' });
+      await api.put(`/api/planes/${planId}/pdf-meta`, metaToSave);
+      setSaveStatus('saved');
       return true;
     } catch (e) {
+      setSaveStatus('error');
       toast({ title: 'Error al asegurar la configuración', variant: 'destructive' });
       return false;
     } finally {
@@ -216,8 +222,17 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
           </p>
         </div>
 
-        <div className="flex-1 space-y-6 overflow-y-auto custom-scrollbar pr-2">
-          <PdfMenuFontSize value={meta.menuFontSize} onChange={size => setMeta({ ...meta, menuFontSize: size })} />
+        <fieldset disabled={saving} className="flex-1 min-w-0 space-y-6 overflow-y-auto custom-scrollbar pr-2">
+          <div>
+            <PdfMenuFontSize value={meta.menuFontSize} onChange={size => {
+              const newMeta = { ...meta, menuFontSize: size };
+              setMeta(newMeta);
+              void handleSaveMeta(newMeta);
+            }} />
+            <p role="status" className="text-[11px] text-[#8a8a8a] mt-2">
+              {saveStatus === 'saving' ? 'Guardando…' : saveStatus === 'saved' ? 'Guardado' : saveStatus === 'error' ? 'No se pudieron guardar los ajustes.' : 'Los ajustes se guardan automáticamente.'}
+            </p>
+          </div>
           <div className="space-y-4">
             <h3 className="text-[12px] font-bold text-[#666] uppercase tracking-[0.2em] ml-1">Selección de Hojas</h3>
             <div className="space-y-2.5">
@@ -233,19 +248,17 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
           </div>
 
           {/* Sección de Notas Destacadas removida según solicitud del usuario */}
-        </div>
+        </fieldset>
 
         <div className="space-y-3 pt-4 border-t border-[#1a1a1a]">
-          <button onClick={() => handleSaveMeta(true)} disabled={saving} className="w-full bg-brand-primary text-black font-semibold rounded-[12px] py-3.5 px-4 text-[14px] transition-all flex items-center justify-center gap-2 disabled:opacity-50">
-            <Check className="w-5 h-5" /> {saving ? 'Guardando ajustes...' : 'Guardar ajustes'}
-          </button>
+          {saveStatus === 'error' && <button onClick={() => handleSaveMeta()} className="w-full text-red-300 underline text-[13px] py-2">Reintentar guardado</button>}
           <button onClick={handleDownload} disabled={saving} className="w-full bg-[#111] border border-[#333] hover:bg-[#1a1a1a] text-white font-semibold rounded-[12px] py-3.5 px-4 text-[14px] transition-all flex items-center justify-center gap-2">
             <Download className="w-5 h-5" /> Descargar Oficial PDF
           </button>
           
           <div className="flex gap-3">
              {!isPlanDetail && (
-               <button onClick={onFinish} className="flex-1 bg-[#1a1a1a] border border-[#333] hover:bg-[#222] text-[#8a8a8a] hover:text-white font-semibold rounded-[12px] py-3.5 px-4 text-[14px] transition-all flex items-center justify-center text-center leading-tight">
+               <button onClick={onFinish} disabled={saving} className="flex-1 bg-[#1a1a1a] border border-[#333] hover:bg-[#222] text-[#8a8a8a] hover:text-white font-semibold rounded-[12px] py-3.5 px-4 text-[14px] transition-all flex items-center justify-center text-center leading-tight">
                  Omitir y<br/>Finalizar Consulta
                </button>
              )}

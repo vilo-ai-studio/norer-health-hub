@@ -14,7 +14,7 @@ export function PdfMenuFontSize({ value, onChange }: { value: number; onChange: 
           </button>
         ))}
       </div>
-      <p className="text-[11px] text-[#8a8a8a]">El tamaño cambia las tablas del menú. Si aparece primero el historial, baja hasta las hojas del menú para ver la diferencia. Guarda los ajustes para conservarlos al volver a abrir.</p>
+      <p className="text-[11px] text-[#8a8a8a]">El tamaño cambia las tablas del menú. Si aparece primero el historial, baja hasta las hojas del menú para ver la diferencia.</p>
     </fieldset>
   );
 }

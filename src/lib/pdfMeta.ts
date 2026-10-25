@@ -7,6 +7,7 @@ export const DEFAULT_PDF_META = {
   showAlimentosEvitar: true,
   showDistribucionPorciones: false,
   soloEquivalencias: false,
+  menuFontSize: 11,
 };
 
 type PdfMeta = Record<string, unknown>;
@@ -32,7 +33,7 @@ export function parsePdfPreferences(saved: string | null): PdfMeta {
 export function buildPdfMeta(globalPreferences: PdfMeta = {}, planMeta: PdfMeta = {}, defaultShowDistribucionPorciones?: boolean, defaultSoloEquivalencias?: boolean): PdfMeta {
   // Estas dos opciones siempre siguen el tipo de contenido actual del plan. No deben quedar
   // fijadas por preferencias globales, valores guardados ni la marca legacy `_manualPdfKeys`.
-  const { soloEquivalencias: _ignoredGlobalValue, showDistribucionPorciones: _ignoredGlobalDist, ...safeGlobalPreferences } = globalPreferences;
+  const { soloEquivalencias: _ignoredGlobalValue, showDistribucionPorciones: _ignoredGlobalDist, menuFontSize: _ignoredGlobalFontSize, ...safeGlobalPreferences } = globalPreferences;
   const {
     soloEquivalencias: _ignoredPlanSolo,
     showDistribucionPorciones: _ignoredPlanDist,
@@ -44,6 +45,7 @@ export function buildPdfMeta(globalPreferences: PdfMeta = {}, planMeta: PdfMeta 
     ...DEFAULT_PDF_META,
     ...safeGlobalPreferences,
     ...safePlanMeta,
+    menuFontSize: [11, 12, 13.5].includes(planMeta.menuFontSize as number) ? planMeta.menuFontSize : 11,
     soloEquivalencias: defaultSoloEquivalencias ?? DEFAULT_PDF_META.soloEquivalencias,
     showDistribucionPorciones: defaultShowDistribucionPorciones ?? DEFAULT_PDF_META.showDistribucionPorciones,
   };

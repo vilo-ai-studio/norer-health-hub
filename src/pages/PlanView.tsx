@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { ArrowLeft, Edit2, FileText, Send, Lock, Trash2, Clock, Settings2, Activity } from 'lucide-react';
@@ -117,9 +117,13 @@ export const PlanEnvioForm = ({ pacienteId: propPacienteId, planId: propPlanId, 
     }, [pacienteId, planId]);
 
     const deliverySectionRef = useRef<HTMLDivElement>(null);
+    const handlePdfMetaChange = useCallback((meta: Record<string, unknown>) => {
+        setPlan(prev => prev ? { ...prev, pdfCustomMeta: meta } : prev);
+    }, []);
 
     const handlePdf = async () => {
         try {
+            await api.put(`/api/planes/${planId}/pdf-meta`, plan?.pdfCustomMeta || {});
             // TODO[backend norder-crm-api]: reemplazar encabezado hardcoded por:
             //   L.N. Eyder Méndez Gamboa
             //   Certificación ISAK Nivel 2
@@ -165,6 +169,7 @@ export const PlanEnvioForm = ({ pacienteId: propPacienteId, planId: propPlanId, 
 
         try {
             setSending(true);
+            await api.put(`/api/planes/${planId}/pdf-meta`, plan?.pdfCustomMeta || {});
             const { data } = await api.post(`/api/planes/${planId}/enviar`, { canales: channels });
             const resultado = data?.data || data;
             const feedback = getPlanDeliveryFeedback(resultado || {}, channels);
@@ -465,6 +470,7 @@ export const PlanEnvioForm = ({ pacienteId: propPacienteId, planId: propPlanId, 
                         planId={planId || ''}
                         onFinish={() => onFinish ? onFinish() : navigate(`/pacientes/${pacienteId}`)}
                         context="plan-detail"
+                        onMetaChange={handlePdfMetaChange}
                     />
                 </div>
                 <PlanDeliveryDialog

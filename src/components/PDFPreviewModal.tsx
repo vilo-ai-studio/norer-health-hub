@@ -4,6 +4,7 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import api from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { NutritionLoader } from '@/components/ui/NutritionLoader';
+import { PdfMenuFontSize } from '@/components/PdfMenuFontSize';
 import { buildPdfMeta, defaultShowDistribucionForMenus, getGlobalPdfPreferences, parsePdfPreferences, togglePdfMetaFlag } from '@/lib/pdfMeta';
 
 interface PDFPreviewModalProps {
@@ -131,6 +132,7 @@ export function PDFPreviewModal({ isOpen, onClose, planId, planCustomMeta, onSav
               </div>
 
               <div className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-6 sm:space-y-8 custom-scrollbar">
+                <PdfMenuFontSize value={meta.menuFontSize} onChange={size => setMeta({ ...meta, menuFontSize: size })} />
                 <div className="rounded-[10px] border border-red-400/20 bg-red-400/5 p-3">
                   <p className="m-0 text-[11px] font-semibold leading-relaxed text-red-300">
                     Revisión ortográfica: las palabras dudosas aparecen en rojo únicamente en esta vista previa.

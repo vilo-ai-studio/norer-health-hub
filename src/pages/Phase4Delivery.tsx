@@ -6,6 +6,7 @@ import { useToast } from '@/hooks/use-toast';
 import { NutritionLoader } from '@/components/ui/NutritionLoader';
 import { buildPdfMeta, buildPdfMetaFromPlanResponse, defaultShowDistribucionForMenus, getGlobalPdfPreferences, parsePdfPreferences, togglePdfMetaFlag } from '@/lib/pdfMeta';
 import { PlanDeliveryDialog } from '@/components/PlanDeliveryDialog';
+import { PdfMenuFontSize } from '@/components/PdfMenuFontSize';
 import { getPlanDeliveryFeedback, type PlanDeliveryChannels } from '@/lib/planDelivery';
 
 interface Phase4DeliveryProps {
@@ -13,9 +14,10 @@ interface Phase4DeliveryProps {
   planId: string;
   onFinish: () => void;
   context?: 'assessment' | 'plan-detail';
+  onMetaChange?: (meta: Record<string, unknown>) => void;
 }
 
-export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assessment' }: Phase4DeliveryProps) {
+export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assessment', onMetaChange }: Phase4DeliveryProps) {
   const isPlanDetail = context === 'plan-detail';
   const { toast } = useToast();
   const [meta, setMeta] = useState<any>(() => {
@@ -75,6 +77,10 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
     loadMeta();
   }, [planId]);
 
+  useEffect(() => {
+    if (!loadingInitial) onMetaChange?.(meta);
+  }, [meta, loadingInitial, onMetaChange]);
+
   const fetchPdf = async (metaOptions?: any) => {
     setLoadingPdf(true);
     setPdfError(null);
@@ -115,8 +121,10 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
     setSaving(true);
     try {
       await api.put(`/api/planes/${planId}/pdf-meta`, meta);
+      return true;
     } catch (e) {
       toast({ title: 'Error al asegurar la configuración', variant: 'destructive' });
+      return false;
     } finally {
       setSaving(false);
     }
@@ -131,7 +139,7 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
     //   VIA "Vida Integral y Asesoría Profesional"
     //   Calle 40 #278 G, Campestre C.P. 97120. Mérida, Yucatán.
     // Fuente: src/lib/pdfHeader.ts
-    await handleSaveMeta();
+    if (!await handleSaveMeta()) return;
     try {
       let nombreFinal = pacienteNombre;
       if ((!nombreFinal || nombreFinal === 'Paciente') && pacienteId) {
@@ -157,7 +165,7 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
   };
 
   const handleSend = async (channels: PlanDeliveryChannels) => {
-    await handleSaveMeta();
+    if (!await handleSaveMeta()) return;
     setSending(true);
     try {
       const { data } = await api.post(`/api/planes/${planId}/enviar`, { canales: channels });
@@ -208,6 +216,7 @@ export function Phase4Delivery({ pacienteId, planId, onFinish, context = 'assess
         </div>
 
         <div className="flex-1 space-y-6 overflow-y-auto custom-scrollbar pr-2">
+          <PdfMenuFontSize value={meta.menuFontSize} onChange={size => setMeta({ ...meta, menuFontSize: size })} />
           <div className="space-y-4">
             <h3 className="text-[12px] font-bold text-[#666] uppercase tracking-[0.2em] ml-1">Selección de Hojas</h3>
             <div className="space-y-2.5">

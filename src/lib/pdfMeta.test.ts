@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { buildPdfMeta, buildPdfMetaFromPlanResponse, defaultShowDistribucionForMenus, getGlobalPdfPreferences, parsePdfPreferences, togglePdfMetaFlag } from './pdfMeta';
 
 describe('configuración del PDF', () => {
+  it('usa letra estándar por defecto y conserva el tamaño elegido solo para el menú', () => {
+    expect(buildPdfMeta({ menuFontSize: 13.5 }).menuFontSize).toBe(11);
+    expect(buildPdfMeta({}, { menuFontSize: 12 }).menuFontSize).toBe(12);
+    expect(buildPdfMeta({}, { menuFontSize: 13.5 }).menuFontSize).toBe(13.5);
+    expect(buildPdfMeta({}, { menuFontSize: '13.5px' }).menuFontSize).toBe(11);
+    expect(getGlobalPdfPreferences({ menuFontSize: 13.5 })).not.toHaveProperty('menuFontSize');
+  });
   it('muestra el menú completo por defecto aunque exista una preferencia global antigua', () => {
     const meta = buildPdfMeta({ soloEquivalencias: true });
 

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   KeyboardSensor,
@@ -2241,8 +2242,9 @@ export const CreateEditPlanForm = ({
 
       {ConfirmDialogComponent}
 
-      {/* B7: Barra sticky inferior — visible solo en mobile cuando el header queda fuera del viewport */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-[#0a0a0a]/95 backdrop-blur-md border-t border-[#1a1a1a] px-4 py-3 flex items-center gap-3">
+      <div className="h-24" aria-hidden="true" />
+      {/* El portal evita que las animaciones del asistente desplacen el botón fijo. */}
+      {createPortal(<div className="fixed bottom-0 left-0 right-0 md:left-auto md:rounded-tl-xl z-40 bg-[#0a0a0a]/95 backdrop-blur-md border-t border-[#1a1a1a] px-4 py-3 flex items-center gap-3">
         {macroSum !== 100 && (
           <span className="text-[11px] font-bold text-rose-400 flex items-center gap-1 flex-1 min-w-0 truncate">
             <span className="w-1.5 h-1.5 rounded-full bg-rose-400 shrink-0 animate-pulse" />
@@ -2260,7 +2262,7 @@ export const CreateEditPlanForm = ({
           }
           {isEdit ? 'Guardar' : 'Guardar Menú'}
         </button>
-      </div>
+      </div>, document.body)}
 
     </>
   );

@@ -305,13 +305,20 @@ export const PlanEnvioForm = ({ pacienteId: propPacienteId, planId: propPlanId, 
                             <Activity className="w-[18px] h-[18px]" />
                             <h3 className="text-[16px] font-bold text-white m-0 tracking-wide uppercase">NORDER SUPS</h3>
                         </div>
-                        <div className="overflow-hidden rounded-[8px] border border-[#2a2a2a] bg-[#111]">
-                            <table className="w-full border-collapse text-left">
+                        <div className="overflow-x-auto rounded-[8px] border border-[#555] bg-[#111]">
+                            <table aria-label="Suplementos del plan" className="w-full min-w-[640px] table-fixed border-collapse text-left [&_th]:border [&_th]:border-[#555] [&_td]:border [&_td]:border-[#555] [&_td]:break-words [&_td]:align-top">
+                                <colgroup>
+                                    <col className="w-[26%]" />
+                                    <col className="w-[44%]" />
+                                    <col className="w-[14%]" />
+                                    <col className="w-[16%]" />
+                                </colgroup>
                                 <thead>
-                                    <tr className="bg-[#1a1a1a] border-b border-[#2a2a2a]">
-                                        <th className="px-4 py-3 text-[11px] font-black text-[#555] uppercase tracking-widest w-[30%]">Suplemento</th>
-                                        <th className="px-4 py-3 text-[11px] font-black text-[#555] uppercase tracking-widest w-[45%]">Indicaciones</th>
-                                        <th className="px-4 py-3 text-[11px] font-black text-[#555] uppercase tracking-widest w-[25%] text-right">Tiempo de uso</th>
+                                    <tr className="bg-[#222]">
+                                        <th scope="col" className="px-4 py-3 text-[12px] font-semibold text-[#e0e0e0]">Suplemento</th>
+                                        <th scope="col" className="px-4 py-3 text-[12px] font-semibold text-[#e0e0e0]">Indicaciones</th>
+                                        <th scope="col" className="px-4 py-3 text-[12px] font-semibold text-[#e0e0e0]">Estado</th>
+                                        <th scope="col" className="px-4 py-3 text-[12px] font-semibold text-[#e0e0e0]">Tiempo de uso</th>
                                     </tr>
                                 </thead>
                                 <tbody className="divide-y divide-[#2a2a2a]">
@@ -326,26 +333,18 @@ export const PlanEnvioForm = ({ pacienteId: propPacienteId, planId: propPlanId, 
                                             : `${diasTotales} d${diasTotales > 1 ? 'ías' : 'ía'}`;
 
                                         return (
-                                            <tr key={idx} className="group hover:bg-[#181818] transition-colors">
-                                                <td className="px-4 py-4 align-top">
-                                                    <div className="flex items-start gap-2">
-                                                        <div className={`mt-1 w-1.5 h-1.5 rounded-full shrink-0 ${sup.activo ? 'bg-brand-primary' : 'bg-[#555]'}`} />
-                                                        <div>
-                                                            <span className={`text-[13px] font-bold leading-tight ${sup.activo ? 'text-white' : 'text-[#666] line-through'}`}>{sup.nombre}</span>
-                                                            <span className={`ml-2 text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded-[4px] ${sup.activo ? 'bg-green-500/10 text-green-400 border border-green-500/20' : 'bg-[#222] text-[#555] border border-[#333]'}`}>
-                                                                {sup.activo ? 'activo' : 'suspendido'}
-                                                            </span>
-                                                        </div>
-                                                    </div>
+                                            <tr key={idx} className={`hover:bg-[#181818] transition-colors ${sup.activo ? 'text-[#e0e0e0]' : 'text-[#999] line-through'}`}>
+                                                <td className="px-4 py-3 text-[13px] font-medium leading-relaxed">
+                                                    {sup.nombre}
                                                 </td>
-                                                <td className="px-4 py-4 align-top">
-                                                    <p className="text-[12px] font-medium text-[#c0c0c0] m-0 leading-relaxed whitespace-pre-line">{sup.indicaciones}</p>
+                                                <td className="px-4 py-3 text-[13px] leading-relaxed whitespace-pre-line">
+                                                    {sup.indicaciones || '-'}
                                                 </td>
-                                                <td className="px-4 py-4 align-top text-right">
-                                                    <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-brand-primary/10 rounded-[4px] border border-brand-primary/20">
-                                                        <Clock className="w-3 h-3 text-brand-primary" />
-                                                        <span className="text-[10px] font-bold uppercase tracking-wider text-brand-primary whitespace-nowrap">{tiempoStr}</span>
-                                                    </div>
+                                                <td className={`px-4 py-3 text-[12px] font-semibold ${sup.activo ? 'text-green-400' : 'text-[#999]'}`}>
+                                                    {sup.activo ? 'ACTIVO' : 'SUSPENDIDO'}
+                                                </td>
+                                                <td className="px-4 py-3 text-[13px] leading-relaxed">
+                                                    {tiempoStr}
                                                 </td>
                                             </tr>
                                         );

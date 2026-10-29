@@ -9,6 +9,7 @@ import { usePortalAuthStore } from "@/store/portalAuth";
 import { useThemeStore } from "@/store/theme";
 import Layout from "@/components/Layout";
 import { ChatErrorBoundary } from "@/components/norderhealth/ChatErrorBoundary";
+import { NutritionLoader } from "@/components/ui/NutritionLoader";
 
 // El diccionario ortográfico es pesado; se carga después del shell principal
 // para no bloquear la primera pintura ni inflar el bundle inicial.
@@ -39,7 +40,7 @@ const PortalLayout = React.lazy(() => import("@/components/norderhealth/PortalLa
 
 const RouteFallback = () => (
   <div className="flex min-h-screen items-center justify-center bg-bg-base text-sm text-text-muted">
-    Cargando…
+    <NutritionLoader />
   </div>
 );
 

@@ -16,5 +16,9 @@ FROM caddy:2-alpine
 
 COPY Caddyfile /etc/caddy/Caddyfile
 COPY --from=build /app/dist /srv
+COPY --from=build /app/dist/assets /opt/norder-assets
+COPY start-web.sh /usr/local/bin/start-web.sh
+
+CMD ["sh", "/usr/local/bin/start-web.sh"]
 
 EXPOSE 80 443

@@ -8,7 +8,7 @@ interface NutritionLoaderProps {
 
 export function NutritionLoader({ className, text = "Cargando..." }: NutritionLoaderProps) {
   return (
-    <div className={cn("flex flex-col items-center justify-center gap-5 w-full h-full min-h-[200px]", className)}>
+    <div role="status" aria-live="polite" aria-label={text || 'Cargando...'} className={cn("flex flex-col items-center justify-center gap-5 w-full h-full min-h-[200px]", className)}>
       <div className="relative flex items-center justify-center">
         {/* Outer ambient glow ring */}
         <div className="absolute w-[68px] h-[68px] border-[1.5px] border-white/10 rounded-full animate-[spin_4s_linear_infinite]" />

@@ -15,13 +15,14 @@ import type { DashboardMetricas, Alerta } from '@/types';
 import { useAuthStore } from '@/store/auth';
 import { getBadgeForValuation } from '@/lib/format';
 import { NutritionLoader } from '@/components/ui/NutritionLoader';
+import { PatientLoadError } from '@/components/PatientLoadError';
 
 const Dashboard = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(15);
   const navigate = useNavigate();
   const { user } = useAuthStore();
-  const { data: pacientesData = [], isLoading: loadingPacientes } = usePatients();
+  const { data: pacientesData = [], isLoading: loadingPacientes, isError, refetch } = usePatients();
 
   // Queries para métricas, alertas y top clientes
   const { data: metricas } = useQuery({
@@ -245,11 +246,14 @@ const Dashboard = () => {
     </div>
   );
 
+  if (isError && pacientesData.length === 0) return <PatientLoadError onRetry={() => refetch()} />;
+
   return (
     <div
       className="flex flex-col gap-6 animate-fade-in h-full overflow-y-auto overflow-x-hidden lg:overflow-hidden pb-12 lg:pb-0"
       style={{ fontFamily: 'Inter, system-ui, sans-serif' }}
     >
+      {isError && <PatientLoadError onRetry={() => refetch()} />}
       {/* HEADER SECTION */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>

@@ -5,6 +5,7 @@ import { usePatients } from '@/hooks/usePatients';
 import { formatDate, getBadgeForValuation } from '@/lib/format';
 import type { Valoracion } from '@/types';
 import { NutritionLoader } from '@/components/ui/NutritionLoader';
+import { PatientLoadError } from '@/components/PatientLoadError';
 
 interface PendingItem {
   paciente: {
@@ -21,7 +22,7 @@ const Pending = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
   const navigate = useNavigate();
-  const { data: p = [], isLoading: loading } = usePatients();
+  const { data: p = [], isLoading: loading, isError, refetch } = usePatients();
 
   const pendingItems = useMemo(() => {
     let items: PendingItem[] = [];
@@ -77,8 +78,11 @@ const Pending = () => {
     </div>
   );
 
+  if (isError && p.length === 0) return <PatientLoadError onRetry={() => refetch()} />;
+
   return (
     <div className="space-y-8 animate-fade-in pb-32 max-w-none">
+      {isError && <PatientLoadError onRetry={() => refetch()} />}
       {/* HEADER SECTION */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pt-4">
         <div>

@@ -5,6 +5,7 @@ import { usePatients } from '@/hooks/usePatients';
 import type { Paciente } from '@/types';
 import { formatDate } from '@/lib/format';
 import { NutritionLoader } from '@/components/ui/NutritionLoader';
+import { PatientLoadError } from '@/components/PatientLoadError';
 
 const Patients = () => {
   const [search, setSearch]           = useState('');
@@ -17,7 +18,7 @@ const Patients = () => {
     return () => clearTimeout(t);
   }, [search]);
 
-  const { data: pacientes = [], isLoading: loading } = usePatients(debouncedSearch);
+  const { data: pacientes = [], isLoading: loading, isError, refetch } = usePatients(debouncedSearch);
 
   const diasSinVisita = (fecha?: string) => {
     if (!fecha) return null;
@@ -32,8 +33,11 @@ const Patients = () => {
     </div>
   );
 
+  if (isError && pacientes.length === 0) return <PatientLoadError onRetry={() => refetch()} />;
+
   return (
     <div className="space-y-8 animate-fade-in pb-32 max-w-none">
+      {isError && <PatientLoadError onRetry={() => refetch()} />}
       {/* HEADER SECTION */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 pt-4">
         <div>
@@ -88,11 +92,7 @@ const Patients = () => {
                 </tr>
               ) : (
                 pacientes.map((p) => {
-                  const valArr = (p as any).valoraciones || [];
-                  const lastVal = valArr.length > 0 
-                     ? [...valArr].sort((a: any, b: any) => new Date(b.fecha).getTime() - new Date(a.fecha).getTime())[0] 
-                     : null;
-                  const ultimaVisitaReal = lastVal ? lastVal.fecha : null;
+                  const ultimaVisitaReal = p.ultimaValoracion?.fecha ?? p.valoraciones?.[0]?.fecha ?? null;
                   const sinVisita = diasSinVisita(ultimaVisitaReal);
                   
                   return (

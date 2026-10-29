@@ -3,17 +3,23 @@ import api from '@/lib/api';
 import type { Paciente } from '@/types';
 import { queryKeys } from '@/lib/queryKeys';
 import { invalidateAfterPacienteChange } from '@/lib/invalidation';
+import axios from 'axios';
 
 // ── Fetch todos los pacientes (con búsqueda opcional) ─────────────────────────
 export const usePatients = (search = '') => {
   return useQuery({
     queryKey: queryKeys.pacientes.list(search),
-    queryFn: async () => {
-      const url = `/api/pacientes${search ? `?buscar=${encodeURIComponent(search)}` : ''}`;
-      const { data } = await api.get(url);
+    queryFn: async ({ signal }) => {
+      const url = `/api/pacientes?resumen=true${search ? `&buscar=${encodeURIComponent(search)}` : ''}`;
+      // React Query controla el único reintento para no multiplicarlo con Axios.
+      const { data } = await api.get(url, { signal, skipRetry: true });
       const list = data?.data || data;
       return Array.isArray(list) ? (list as Paciente[]) : [];
     },
+    retry: (failureCount, error) => failureCount < 1 && !axios.isCancel(error)
+      && axios.isAxiosError(error) && (!error.response || error.response.status >= 500),
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
     staleTime: 60 * 1000,           // 1 min — navegación instantánea desde cache
     refetchInterval: 60 * 1000,     // Refresca en background cada minuto
     placeholderData: (prev) => prev, // Muestra datos anteriores mientras refresca

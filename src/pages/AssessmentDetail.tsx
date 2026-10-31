@@ -556,7 +556,7 @@ const AssessmentDetail = () => {
         )}
 
         {(() => {
-          if (isOnlineAssessment || pacienteInfo?.mostrarBioimpedancia === false) return null;
+          if (isOnlineAssessment || val.medicionesEstado?.mostrarBioimpedancia === false) return null;
           const bio = val.bioimpedancia || {};
           const grasa = bio['Grasa %'];
           const agua = bio['Agua %'];

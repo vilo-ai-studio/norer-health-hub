@@ -93,7 +93,7 @@ const NewAssessment = () => {
   const { confirm, ConfirmDialogComponent } = useConfirm();
   const [saving, setSaving] = useState(false);
   const [paciente, setPaciente] = useState<any>(null);
-  const mostrarBioimpedancia = paciente?.mostrarBioimpedancia !== false;
+  const [mostrarBioimpedancia, setMostrarBioimpedancia] = useState(true);
 
   const now = new Date();
   const [step, setStep] = useState(1);
@@ -535,6 +535,7 @@ const NewAssessment = () => {
               setPctGrasa(val.pctGrasa ? String(val.pctGrasa) : '');
               setKgGrasa(val.masaGrasaReal ? String(val.masaGrasaReal) : (val.kgGrasa2comp ? String(val.kgGrasa2comp) : ''));
               const savedStatuses = val.medicionesEstado || {};
+              setMostrarBioimpedancia(savedStatuses.mostrarBioimpedancia !== false);
               setConsultaEnLinea(savedStatuses.consultaEnLinea === true);
               const savedBio = val.bioimpedancia || {};
               const hasBioimpedancia = [
@@ -804,6 +805,7 @@ const NewAssessment = () => {
       imc: !consultaEnLinea && measurementStatuses.peso === 'REGISTRADA' && imc > 0 ? parseFloat(imc.toFixed(2)) : null,
       medicionesEstado: {
         ...measurementStatuses,
+        mostrarBioimpedancia,
         estatura: consultaEnLinea ? 'NO_APLICA' : (estatura ? 'REGISTRADA' : measurementStatuses.estatura),
         consultaEnLinea,
         metodoComposicion: consultaEnLinea ? 'FOTOSCOPIA' : (!mostrarBioimpedancia && !isEdit ? 'ANTROPOMETRIA' : compositionMethod),
